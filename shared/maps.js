@@ -1,0 +1,450 @@
+import { t, getLang } from './i18n.js';
+
+// 地图与物种数据 — 全部基于真实洞潜地点/事件改编。
+// 坐标约定：y<0 为水下深度（米），入口在 y≈0。x/z 为水平面。
+// route：主路线骨架节点序列。cave 生成器沿它放样通道。
+//   p:[x,y,z] 位置  r:通道半径  room:大厅类型  sky:顶部透光
+//   feats: 该段特征 ['stalactite','pearl','silt','crack','pocket','window','line_end']
+// branches：支线岔洞（探索/迷路素材）。
+//   from: route 下标  pts: 后续折点  r, name, deadEnd, feats
+//   endR: 尽头半径  pocket: 尽头是气室  bottomless: 无底/未探明的深井（线到此为止）
+
+export const SPECIES = {
+  // —— 动物 ——
+  cavefish:  { name: '盲眼金线鲃', en: 'Sinocyclocheilus', cat: 'fish',   rarity: 4, desc: '眼睛退化的洞穴鱼，靠侧线感知水流。广西云南的地下河特有种。', hint: '贴着洞壁缓缓游动，怕光。', tip: '体色淡粉近透明，头顶有"角"状隆起；怕光，灯一照就躲。' },
+  blindfish: { name: '墨西哥盲鱼', en: 'Astyanax mexicanus', cat: 'fish', rarity: 3, desc: '没有眼睛也没有色素，天坑淡水层的常住民。', hint: '成群在洞口弱光区打转。', tip: '银白色，眼睛只剩皮下凹点；总是成群，在弱光处打转。' },
+  catfish:   { name: '洞鲶', en: 'Rhamdia', cat: 'fish', rarity: 1, desc: '黄昏时溜进洞口觅食的鲶鱼，胆子比鱼大。', hint: '入口附近，胡须先到你面前。', tip: '深灰色，四对长须最显眼；单独活动，不躲灯。' },
+  shrimp:    { name: '洞穴盲虾', en: 'Typhlatya', cat: 'invert', rarity: 2, desc: '指甲盖大的透明小虾，游姿一弹一弹。', hint: '泥沙地上方几厘米处悬停。', tip: '透明、指甲盖大，一跳一跳；常在泥沙上方成群悬停。' },
+  isopod:    { name: '洞水等足虫', en: 'Cirolanides', cat: 'invert', rarity: 3, desc: '像白色潮虫的甲壳动物，在腐叶边翻找吃的。', hint: '藏在落叶堆和碎石缝里。', tip: '白色扁平，像放大的潮虫；沿地面慢爬，贴着落叶。' },
+  // —— 植物 / 微生物 ——
+  algae:     { name: '洞口藻毯', en: 'algal mat', cat: 'plant', rarity: 1, desc: '阳光够得着的地方才有的一抹绿。', hint: '天窗正下方的岩壁上。', tip: '只在光线能到的位置出现；一片鲜绿，离天窗越远越稀。' },
+  fern:      { name: '天坑蕨幕', en: 'fern curtain', cat: 'plant', rarity: 2, desc: '从洞口垂下来的蕨类，根须泡在水里。', hint: '水面线上下三十厘米。', tip: '一排下垂的深绿细条，随水轻摆；只在水线附近。' },
+  bacteria:  { name: '硫磺菌毯', en: 'sulfur bacteria', cat: 'microbe', rarity: 3, desc: '白色丝状菌落，靠硫化氢维生，像洞里的雪。', hint: '水流缓慢的黑暗角落。', tip: '白色丝状团块，像一小片雪；多在无光、慢流的角落。' },
+  // —— 地质 ——
+  stalactite:{ name: '钟乳石林', en: 'speleothems', cat: 'geo', rarity: 1, desc: '一滴一滴，十万年才长成这样。', hint: '气室与旱洞厅的顶和底。', tip: '顶部垂下的钙质锥；底部对应的是石笋。' },
+  helictite: { name: '卷曲石', en: 'helictite', cat: 'geo', rarity: 4, desc: '违反重力生长的方解石，像冻住的烟。', hint: '气流稳定的洞厅顶壁。', tip: '细小弯曲、方向不定，不遵守重力；多在气流稳定的厅顶。' },
+  pearl:     { name: '洞穴珍珠', en: 'cave pearl', cat: 'geo', rarity: 4, desc: '水珠搅动方解石凝成的圆珠，洞里真正的珍珠。', hint: '浅盆状凹地里，一把一把的。', tip: '一堆浑圆的白色小球，躺在浅盆状凹地里。' },
+  fossil:    { name: '古海贝化石', en: 'fossil shell', cat: 'geo', rarity: 4, desc: '岩层里嵌着的腕足动物——这里曾经是海底。', hint: '看洞壁的断面。', tip: '岩壁断面里的螺旋、肋条状纹路。' },
+  column:    { name: '顶天石柱', en: 'column', cat: 'geo', rarity: 2, desc: '钟乳与石笋终于握上了手。', hint: '大厅正中。', tip: '石钟乳与石笋相接成的整根柱子。' },
+  // —— 扩充物种 ——
+  trout:     { name: '洞口溪鳟', en: 'Salmo trutta', cat: 'fish', rarity: 1, desc: '顺着泉流游到洞口附近的鳟鱼，只在有光的地方出没。', hint: '靠近出水口，成对游动。', tip: '银灰色带黑色斑点，流线型；通常出现在流速较快、有光的位置。' },
+  olm:       { name: '洞螈', en: 'Proteus anguinus', cat: 'amph', rarity: 5, desc: '没有色素、眼睛退化的洞穴两栖动物，一辈子住在黑暗里，可以十年不进食。', hint: '极其稀有，慢慢爬行在洞底，灯要打得轻。', tip: '细长的粉白色身体，头两侧一对红色羽状外鳃，四肢短小。' },
+  crayfish:  { name: '洞穴螯虾', en: 'Cambarus', cat: 'invert', rarity: 2, desc: '白里透橙的洞穴螯虾，触须比身体还长，靠触觉在黑暗里找路。', hint: '泥沙地面，大螯朝前。', tip: '一对大螯、长触须，体色浅橙；爬行为主，受惊会倒退弹开。' },
+  snail:     { name: '洞穴螺', en: 'Physa spelunca', cat: 'invert', rarity: 1, desc: '半透明的小螺，在岩壁和落叶上刮食菌膜。', hint: '贴在岩壁或落叶上，几乎不动。', tip: '米粒大的螺旋壳，半透明，贴着表面慢移。' },
+  ironbac:   { name: '铁细菌膜', en: 'iron bacteria', cat: 'microbe', rarity: 2, desc: '铁锈色的胶状菌膜，把水里的亚铁氧化成氢氧化铁，把岩壁染成橙红。', hint: '有铁质渗水的岩壁，橙红色。', tip: '橙红色胶状薄膜，边缘有絮状拖尾；周围岩壁带锈色。' },
+  gypsum:    { name: '石膏花', en: 'gypsum flower', cat: 'geo', rarity: 4, desc: '从岩壁里"开"出来的卷曲针状石膏，像一朵朵白花。', hint: '干燥或气室附近的岩壁。', tip: '白色卷曲的针状晶体，像从岩壁里长出的花。' },
+  flowstone: { name: '流石幔', en: 'flowstone', cat: 'geo', rarity: 2, desc: '含钙水膜一层层覆在岩壁上，凝成奶油色的瀑布。', hint: '岩壁上成片的奶油色褶皱。', tip: '奶油色、一层层的波浪状褶皱，覆盖整片岩壁。' },
+  bones:     { name: '史前兽骨', en: 'prehistoric bones', cat: 'geo', rarity: 4, desc: '冰河时期掉进竖井的动物，骨骼被水和矿物保存了上万年。', hint: '竖井底部与深处的堆积物里。', tip: '白色的长骨与颅骨，半埋在泥里；个头比人手大得多。' },
+  // —— 海洋物种 ——
+  damselfish: { name: '雀鲷', en: 'Chromis viridis', cat: 'fish', rarity: 1, desc: '礁盘上最常见的蓝绿色小鱼，成群在珊瑚头上方悬停，一有动静就钻进枝丫里。', hint: '珊瑚头周围，成群。', tip: '拇指大小，蓝绿色，成群；受惊时整群同时缩回珊瑚。' },
+  clownfish: { name: '小丑鱼', en: 'Amphiprion ocellaris', cat: 'fish', rarity: 2, desc: '橙色带白环的小鱼，一辈子住在同一朵海葵里，靠黏液不被蜇伤。', hint: '海葵的触手之间，不会离开太远。', tip: '橙色身体，两道白色环带，总在海葵附近。' },
+  parrotfish: { name: '鹦嘴鱼', en: 'Scarus', cat: 'fish', rarity: 2, desc: '用鸟喙一样的牙齿啃食珊瑚上的藻类，排出的细沙就是白色沙滩的来源。', hint: '礁盘上啃食，咔嚓咔嚓的声音。', tip: '体型较大，青绿色，嘴像鸟喙；贴着珊瑚啃。' },
+  grouper:   { name: '石斑鱼', en: 'Epinephelus', cat: 'fish', rarity: 3, desc: '沉船里的"房东"，体型庞大、动作缓慢，大嘴一张能吞下整条小鱼。', hint: '沉船舱口和船体阴影里，常常一动不动。', tip: '体长过米、褐色斑驳，大嘴；常停在舱口。' },
+  turtle:    { name: '海龟', en: 'Chelonia mydas', cat: 'reptile', rarity: 4, desc: '呼吸空气的远古住客，一次下潜能憋气几十分钟，划水的姿势像在空中滑翔。', hint: '蓝水里，缓慢地、毫不在意地划过。', tip: '椭圆形壳，四只桨状前肢；游动时前肢像翅膀一样拍打。' },
+  ray:       { name: '鹰鳐', en: 'Aetobatus', cat: 'fish', rarity: 4, desc: '宽大的胸鳍拍打成"飞行"，长长的尾巴像鞭子。常在深蓝里成对巡游。', hint: '开阔的蓝水里，贴着崖壁滑行。', tip: '菱形身体、鳍尖下垂，细长的尾巴；游动像鸟飞行。' },
+  shark:     { name: '礁鲨', en: 'Carcharhinus perezi', cat: 'fish', rarity: 5, desc: '礁盘的巡逻者，一般不理会潜水员，但会在你上升时从下方静静划过。', hint: '深蓝的边缘，沿着固定路线巡游。', tip: '灰色流线型身体、高耸的背鳍与不对称的尾鳍，泳姿沉稳、不停歇。' },
+  jellyfish: { name: '水母', en: 'Aurelia', cat: 'invert', rarity: 2, desc: '九成以上是水，一收一放地漂着。有的蜇人，拍照要保持距离。', hint: '开阔水体里，随水流漂移。', tip: '透明伞盖、一收一放地脉动，下垂着细长触手。' },
+  octopus:   { name: '章鱼', en: 'Octopus vulgaris', cat: 'invert', rarity: 4, desc: '会变色、会拟态、会开罐子的聪明动物，白天多半藏在缝里，只露出一双眼。', hint: '沉船缝隙与岩洞里，灯一照就变色。', tip: '圆头、八条腕，皮肤会随背景变色；常常缩在洞口只露眼睛。' },
+  nudibranch:{ name: '海兔', en: 'Nudibranch', cat: 'invert', rarity: 3, desc: '没有壳的海蛞蝓，颜色鲜艳是在警告：我有毒。', hint: '礁石与海绵表面，小得几乎看不见。', tip: '指头大小的鲜艳软体，头顶两根角、背上一簇"羽毛"。' },
+  coral:     { name: '鹿角珊瑚', en: 'Acropora', cat: 'invert', rarity: 1, desc: '一群群小水螅虫共同筑起的"森林"，是整片礁盘的骨架。', hint: '浅礁上成片的枝状体。', tip: '分枝像鹿角，颜色从粉到橙；别用手碰，会碎。' },
+  anemone:   { name: '海葵', en: 'Heteractis', cat: 'invert', rarity: 2, desc: '触手上布满刺丝胞的捕食者，却容得下小丑鱼住在里面。', hint: '沙地上的"花"，触手轻摆。', tip: '一圈细密的触手像菊花，随水摆动；中间是口。' },
+  seafan:    { name: '海扇', en: 'Gorgonian', cat: 'invert', rarity: 3, desc: '垂直于水流方向生长的扇形软珊瑚，捕捉漂过的浮游生物。', hint: '崖壁与礁沿，迎着水流。', tip: '像扇子一样的网状分枝，总是朝着水流的方向张开。' },
+  sponge:    { name: '桶状海绵', en: 'Xestospongia', cat: 'invert', rarity: 2, desc: '能活上千年的滤食动物，一个桶就能每天过滤上万升海水。', hint: '礁坡上，圆桶形，口朝上。', tip: '紫褐色的圆桶，顶口敞开；表面粗糙多孔。' },
+  shipbell:  { name: '沉船铜钟', en: "ship's bell", cat: 'artifact', rarity: 4, desc: '刻着船名的铜钟，是沉船身份的证据，也是潜水员敬重的"墓碑"。', hint: '沉船驾驶台或舱口附近。', tip: '绿色铜锈覆盖的钟形物，顶端有吊环；只拍，不拿。' },
+};
+
+
+// 结局图鉴也放共享层 —— 联机时要同步广播
+export const ENDINGS = {
+  survived:    { name: '撤离成功', kind: 'good', desc: '按计划潜，按计划出水。', hint: '只带走照片，只留下气泡。' },
+  survived_rough: { name: '撤离成功，但没完全成功', kind: 'good', desc: '带着一身冷汗和半罐气滚上了岸。', hint: '别等到气快用完才往回走。' },
+  deco_hit:    { name: '减压病', kind: 'bad', desc: '上升过快，血液里的氮开了香槟。', hint: '控制上升速度，做完减压停留再出水。' },
+  out_of_air:  { name: '气尽', kind: 'bad', desc: '最后一口呼吸在二十米深的地方。', hint: '三分之一法则不是建议，是遗嘱格式。' },
+  silt_lost:   { name: '泥沙迷路', kind: 'bad', desc: '你搅起的泥沙让你永远留在了这段通道。', hint: '脚蹼离地面远一点，慢一点，稳一点。' },
+  lost_line:   { name: '弄丢引绳', kind: 'bad', desc: '绳子就在那里，只是你再也摸不到它了。', hint: '永远保持和引导绳的接触。' },
+  narcosis:    { name: '氮醉', kind: 'bad', desc: '四十米深处你觉得一切都在变好，包括关掉灯。', hint: '深潜不是勇敢，是化学。' },
+  panic:       { name: '惊慌', kind: 'bad', desc: '心率 180 的时候，洞里没有一个决定是对的。', hint: '停下来，呼吸，想清楚，再动。' },
+  stuck:       { name: '卡在窄缝', kind: 'bad', desc: '窄缝不会松开，它只是不在乎你急不急。', hint: '量好自己的腰围，也量好缝的。' },
+  buddy_lost:  { name: '潜伴失散', kind: 'bad', desc: '泥沙里，潜伴的灯一晃就不见了。', hint: '潜伴不是负担，是你的第二套肺。' },
+  tox:         { name: '氧中毒', kind: 'bad', desc: '高压氧不是补药，是剂量够了的毒。', hint: '深度表上每个数字都有代价。' },
+  freeflow:    { name: '自由流耗尽', kind: 'bad', desc: '调节器开始自由流的时候，气瓶倒得比水快。', hint: '听到嘶嘶声就换备用二级头。' },
+  rescued:     { name: '获救', kind: 'good', desc: '极为少见的获救案例。', hint: '被困时找到气室，节省体力，等待救援。' },
+  missing:     { name: '失踪', kind: 'bad', desc: '搜救队找到了你的引绳，仅此而已。', hint: '洞里没有下一把。' },
+};
+
+// ———————— 地图 ————————
+export const MAPS = [
+  {
+    id: 'dosojos',
+    name: '双瞳天坑',
+    en: 'Dos Ojos',
+    sub: '新手道',
+    desc: '两个并排的天窗把水下的石灰岩洞厅照亮。水很清，鱼是瞎的，规矩还在。',
+    basedOn: '原型：墨西哥尤卡坦 Cenote Dos Ojos——世界上最长的水下洞穴系统之一，也是洞穴潜水员的启蒙地。',
+    difficulty: 1,
+    maxDepth: 11,
+    water: { vis: 22, tint: 0x0e3d3a, glow: 0x39d5c9 },
+    route: [
+      { p: [0, -1, 0],     r: 9,  room: 'entry',  sky: true, name: '第一眼天窗' },
+      { p: [0, -6, -14],   r: 7,  room: 'hall', feats: ['stalactite', 'algae', 'line_start'] },
+      { p: [-4, -8, -30],  r: 5,  feats: ['stalactite', 'blindfish'] },
+      { p: [-10, -9, -48], r: 3.4, feats: ['silt'] },
+      { p: [-6, -10, -66], r: 6,  room: 'hall', feats: ['stalactite', 'pearl'], name: '珍珠厅' },
+      { p: [4, -9, -80],   r: 3.8 },
+      { p: [14, -8, -92],  r: 7,  room: 'hall', sky: true, feats: ['fern', 'algae'], name: '第二眼天窗' },
+      { p: [24, -10, -104],r: 4,  feats: ['fossil'] },
+      { p: [30, -11, -122],r: 3,  feats: ['silt', 'shrimp'] },
+      { p: [36, -10, -138],r: 5.5,room: 'hall', feats: ['helictite'], name: '烟厅' },
+    ],
+    branches: [
+      { from: 3, pts: [[-16,-9,-52],[-24,-8,-60],[-30,-9,-72]], r: 2.2, endR: 4.6, name: '蝙蝠廊', pocket: true, feats: ['bats'] },
+      { from: 1, pts: [[8,-6,-22],[16,-5,-36]], r: 2.6, name: '浅滩岔', deadEnd: true },
+      { from: 8, pts: [[42,-14,-126],[48,-30,-130],[52,-60,-138]], r: 1.6, name: '无底竖井', bottomless: true },
+      { from: 7, pts: [[10,-9,-98],[2,-10,-108]], r: 2.4, name: '回水岔' },
+      { from: 9, pts: [[38,-11,-126],[46,-10,-134]], r: 0.9, name: '窄缝', feats: ['crack'] },
+    ],
+    creatures: ['catfish', 'blindfish', 'shrimp', 'isopod', 'algae', 'fern', 'pearl', 'stalactite', 'helictite', 'fossil', 'snail', 'flowstone'],
+    objectives: ['explore', 'photo'],
+    hazards: { silt: 0.4, narcosis: 0.05, flow: 0.1, crack: 0.3 },
+  },
+
+  {
+    id: 'thamluang',
+    name: '睡美人洞',
+    en: 'Tham Luang',
+    sub: '雨季 · 救援季',
+    desc: '季风灌满的长洞，九个洞厅，一段著名的T字岔口。2018年全世界在这里等了十八天。',
+    basedOn: '原型：泰国清莱睡美人洞 2018 救援事件——野猪队十二名少年与教练被困，国际潜水队将十三人全部带出。',
+    difficulty: 3,
+    maxDepth: 16,
+    water: { vis: 9, tint: 0x2a2417, glow: 0x8f7b46 },
+    route: [
+      { p: [0, -1, 0],     r: 6,  room: 'entry', sky: true, name: '洞口' },
+      { p: [-6, -4, -20],  r: 4,  feats: ['line_start', 'silt'] },
+      { p: [-14, -7, -44], r: 3,  feats: ['silt'] },
+      { p: [-20, -6, -70], r: 5.5,room: 'hall', feats: ['pocket'], name: '三号洞厅' },
+      { p: [-14, -9, -94], r: 2.6, feats: ['silt', 'current'] },
+      { p: [-4, -12, -116],r: 2.2, feats: ['silt', 'restriction'] },
+      { p: [8, -10, -134], r: 4,  room: 'hall', name: 'T字岔口' },
+      { p: [18, -12, -150],r: 2.4, feats: ['silt'] },
+      { p: [26, -14, -172],r: 2,  feats: ['restriction'] },
+      { p: [30, -12, -194],r: 5,  room: 'hall', feats: ['pocket'], name: '芭提雅沙滩' },
+      { p: [36, -14, -214],r: 2.2, feats: ['silt'] },
+      { p: [42, -13, -232],r: 4.5,room: 'hall', feats: ['pocket'], name: '九号洞厅' },
+    ],
+    branches: [
+      { from: 6, pts: [[2,-9,-146],[-8,-8,-158]], r: 2.0, name: '岔路（错的）', deadEnd: true },
+      { from: 9, pts: [[36,-11,-202],[42,-10,-212]], r: 1.6, name: '侧缝' },
+      { from: 3, pts: [[-30,-8,-76],[-40,-8,-84]], r: 2.4, endR: 4.8, name: '干洞厅', pocket: true },
+      { from: 8, pts: [[34,-18,-176],[38,-40,-180],[40,-80,-186]], r: 1.8, name: '塌陷深井', bottomless: true },
+    ],
+    creatures: ['shrimp', 'isopod', 'bacteria', 'catfish', 'crayfish', 'snail', 'flowstone', 'bones'],
+    objectives: ['rescue', 'explore', 'salvage'],
+    hazards: { silt: 1.0, narcosis: 0.08, flow: 0.5, crack: 0.4, lineBreak: 0.15 },
+  },
+
+  {
+    id: 'eaglesnest',
+    name: '鹰巢',
+    en: "Eagle's Nest",
+    sub: '水下珠峰',
+    desc: '佛州森林里的一个安静池塘，下面是一根直通深渊的烟囱。警示牌上的潜水员剪影没有上岸。',
+    basedOn: '原型：美国佛州 Eagle\'s Nest——"水下的珠穆朗玛"，深近百米的巨型水下厅堂，十余名潜水员在此遇难。',
+    difficulty: 4,
+    maxDepth: 62,
+    gas: 320,
+    water: { vis: 16, tint: 0x08262e, glow: 0x2a7f9e },
+    route: [
+      { p: [0, -1, 0],     r: 7,  room: 'entry', sky: true, name: '池塘' },
+      { p: [0, -8, -6],    r: 3.4,feats: ['line_start'], name: '烟囱口' },
+      { p: [-2, -18, -12], r: 3,  feats: ['silt'] },
+      { p: [-4, -28, -18], r: 4.5 },
+      { p: [-8, -40, -26], r: 9,  room: 'hall', name: '宴会厅上缘' },
+      { p: [-10, -50, -34],r: 11, room: 'hall', feats: ['debris'], name: '宴会厅' },
+      { p: [-6, -58, -46], r: 7,  feats: ['debris', 'fossil'] },
+      { p: [2, -62, -56],  r: 5,  feats: ['silt'], name: '厅底' },
+    ],
+    branches: [
+      { from: 4, pts: [[-18,-42,-30],[-28,-44,-36]], r: 3, name: '西翼' },
+      { from: 5, pts: [[0,-52,-42],[10,-54,-48]], r: 2.6, name: '下游缝' },
+      { from: 4, pts: [[-2,-41,-32],[6,-42,-40]], r: 3, name: '东翼', deadEnd: true },
+      { from: 7, pts: [[8,-75,-62],[12,-100,-70],[16,-140,-76]], r: 3, name: '下游深渊', bottomless: true },
+    ],
+    creatures: ['blindfish', 'shrimp', 'fossil', 'catfish', 'bones', 'ironbac'],
+    objectives: ['explore', 'salvage', 'photo'],
+    hazards: { silt: 0.5, narcosis: 0.9, flow: 0.15, freeflow: 0.2 },
+  },
+
+  {
+    id: 'boesmansgat',
+    name: '布什曼洞',
+    en: 'Boesmansgat',
+    sub: '深渊打捞',
+    desc: '南非高原上一面平静的湖，湖底是垂直的井。有人下去找十年前的潜水员，把自己也留在了那儿。',
+    basedOn: '原型：南非 Boesmansgat——世界第三深淡水洞。2005 年 Dave Shaw 在水下 270 米打捞 Deon Dreyer 遗体时遇难。',
+    difficulty: 5,
+    maxDepth: 70,
+    gas: 360,
+    water: { vis: 14, tint: 0x0a1e1c, glow: 0x27504a },
+    route: [
+      { p: [0, -1, 0],     r: 10, room: 'entry', sky: true, name: '湖面' },
+      { p: [2, -12, -4],   r: 8,  feats: ['line_start'] },
+      { p: [0, -26, -6],   r: 8,  name: '井壁' },
+      { p: [-2, -40, -8],  r: 9,  feats: ['algae'] },
+      { p: [-4, -54, -10], r: 10, room: 'hall' },
+      { p: [-2, -64, -14], r: 8,  feats: ['debris'], name: '骸骨带' },
+      { p: [4, -70, -20],  r: 6,  feats: ['debris'], name: '洞底' },
+    ],
+    branches: [
+      { from: 4, pts: [[-14,-56,-16],[-22,-58,-22]], r: 3.4, name: '侧龛' },
+      { from: 6, pts: [[10,-85,-24],[14,-130,-30],[16,-200,-34]], r: 4, name: '更深的井', bottomless: true },
+    ],
+    creatures: ['shrimp', 'bacteria', 'fossil', 'bones', 'trout'],
+    objectives: ['salvage', 'explore'],
+    hazards: { silt: 0.4, narcosis: 1.0, flow: 0.0, freeflow: 0.25 },
+  },
+
+  {
+    id: 'jiudun',
+    name: '九顿天窗',
+    en: 'Jiudun Skylight',
+    sub: '深渊之目',
+    desc: '广西都安的天窗群，澄江河在这里钻进地底。这里保持着亚洲洞潜的深度纪录，也收走纪录保持者。',
+    basedOn: '原型：广西都安九顿天窗——2023 年潜水员韩颋在此冲击深度纪录时失联，是中文洞潜圈最痛的一次复盘。',
+    difficulty: 5,
+    maxDepth: 66,
+    gas: 340,
+    water: { vis: 18, tint: 0x0b3038, glow: 0x35a0b4 },
+    route: [
+      { p: [0, -1, 0],     r: 8,  room: 'entry', sky: true, name: '天窗' },
+      { p: [-2, -10, -4],  r: 6,  feats: ['line_start', 'fern'] },
+      { p: [-6, -20, -10], r: 5,  feats: ['cavefish'] },
+      { p: [-12, -32, -14],r: 4.5 },
+      { p: [-18, -44, -20],r: 6,  room: 'hall', feats: ['fossil'] },
+      { p: [-22, -56, -28],r: 4,  feats: ['silt'] },
+      { p: [-24, -66, -36],r: 5,  feats: ['debris'], name: '深处' },
+    ],
+    branches: [
+      { from: 3, pts: [[-20,-34,-10],[-28,-36,-6]], r: 2.6, name: '侧支' },
+      { from: 5, pts: [[-32,-58,-34],[-38,-60,-42]], r: 2.2, name: '下行缝' },
+      { from: 4, pts: [[-26,-40,-26],[-34,-36,-30]], r: 2.4, endR: 4.6, name: '悬空气室', pocket: true },
+      { from: 6, pts: [[-28,-72,-40],[-32,-100,-46],[-36,-150,-52]], r: 3, name: '未探明的下延', bottomless: true },
+    ],
+    creatures: ['cavefish', 'shrimp', 'bacteria', 'fossil', 'stalactite', 'olm', 'crayfish', 'gypsum'],
+    objectives: ['explore', 'photo', 'salvage'],
+    hazards: { silt: 0.5, narcosis: 1.0, flow: 0.3, freeflow: 0.2 },
+  },
+
+  {
+    id: 'blueriver',
+    name: '蓝潭地下河',
+    en: 'Luminous River',
+    sub: '地下河',
+    desc: '峡谷里的地下河、光柱大厅、幻觉。更深，更真，更难。',
+    basedOn: '原型：虚构的蓝潭地下河——以峡谷暗河洞潜为蓝本，集光柱大厅、窄缝、强流与氮醉幻觉于一洞。',
+    difficulty: 3,
+    maxDepth: 38,
+    water: { vis: 20, tint: 0x0a3550, glow: 0x3fc9ff },
+    route: [
+      { p: [0, -1, 0],     r: 8,  room: 'entry', sky: true, name: '蓝潭入口' },
+      { p: [0, -8, -16],   r: 5,  feats: ['line_start', 'algae'] },
+      { p: [-8, -14, -34], r: 3.6,feats: ['current'] },
+      { p: [-18, -18, -52],r: 3,  feats: ['silt'] },
+      { p: [-26, -22, -72],r: 8,  room: 'hall', sky: true, feats: ['stalactite', 'column'], name: '光柱大厅' },
+      { p: [-34, -26, -92],r: 2.6,feats: ['silt'] },
+      { p: [-40, -30, -110],r: 2, feats: ['restriction'] },
+      { p: [-44, -34, -126],r: 3, feats: ['cavefish'] },
+      { p: [-48, -38, -142],r: 4.5,room: 'hall', feats: ['bacteria'], name: '幻觉厅' },
+    ],
+    branches: [
+      { from: 2, pts: [[-4,-15,-44],[4,-16,-52]], r: 2.2, name: '吸水洞', feats: ['current'] },
+      { from: 5, pts: [[-28,-27,-104],[-22,-28,-116]], r: 0.95, name: '窄缝', feats: ['crack'] },
+      { from: 7, pts: [[-52,-35,-136],[-58,-36,-146]], r: 1.5, name: '岔洞（错的）', deadEnd: true },
+      { from: 4, pts: [[-18,-20,-80],[-10,-18,-92]], r: 2.3, endR: 4.4, name: '光窗气室', pocket: true },
+      { from: 3, pts: [[-22,-24,-48],[-26,-50,-44],[-30,-90,-40]], r: 1.8, name: '黑井', bottomless: true },
+    ],
+    creatures: ['catfish', 'cavefish', 'shrimp', 'pearl', 'stalactite', 'column', 'bacteria', 'algae', 'olm', 'snail', 'ironbac', 'flowstone', 'gypsum'],
+    objectives: ['explore', 'photo', 'rescue'],
+    hazards: { silt: 0.7, narcosis: 0.5, flow: 0.6, crack: 0.5, lineBreak: 0.1 },
+  },
+
+  {
+    id: 'devilseye',
+    name: '魔鬼之眼',
+    en: "Devil's Eye",
+    sub: '泉眼激流',
+    desc: '佛州清泉下面的一只眼睛，水流像呼吸一样往外吐。鱼在这里排队看潜水员出洋相。',
+    basedOn: '原型：美国佛州 Ginnie Springs / Devil\'s Eye——洞潜圣地，强流泉洞，也是无数训练事故的发生地。',
+    difficulty: 2,
+    maxDepth: 24,
+    water: { vis: 26, tint: 0x0d3a4d, glow: 0x42b7d9 },
+    route: [
+      { p: [0, -1, 0],     r: 7,  room: 'entry', sky: true, name: '泉潭' },
+      { p: [2, -6, -12],   r: 4.5,feats: ['line_start', 'current'] },
+      { p: [6, -10, -26],  r: 3,  feats: ['current', 'silt'] },
+      { p: [10, -14, -42], r: 4,  feats: ['fossil'] },
+      { p: [8, -18, -58],  r: 5.5,room: 'hall', feats: ['stalactite'], name: '耳室' },
+      { p: [2, -22, -74],  r: 3,  feats: ['current', 'shrimp'] },
+      { p: [-6, -24, -90], r: 4,  room: 'hall', feats: ['pearl'], name: '珠窝' },
+    ],
+    branches: [
+      { from: 3, pts: [[18,-15,-48],[24,-16,-58]], r: 1.8, name: '上支' },
+      { from: 5, pts: [[8,-23,-84],[14,-24,-96]], r: 1.6, name: '窄缝', feats: ['crack'] },
+      { from: 4, pts: [[16,-17,-62],[24,-17,-70]], r: 2, endR: 4, name: '回音室', pocket: true },
+      { from: 2, pts: [[2,-20,-28],[-2,-45,-30],[-4,-80,-34]], r: 1.5, name: '泉眼深喉', bottomless: true },
+    ],
+    creatures: ['catfish', 'blindfish', 'shrimp', 'isopod', 'algae', 'pearl', 'fossil', 'stalactite', 'trout', 'crayfish', 'snail'],
+    objectives: ['photo', 'explore'],
+    hazards: { silt: 0.3, narcosis: 0.2, flow: 0.8, crack: 0.4 },
+  },
+
+  // ———————— 教学专用水域（不进主菜单选图） ————————
+  {
+    id: 'pool',
+    name: '训练池',
+    en: 'Training Basin',
+    hidden: true,
+    sub: '平静水域',
+    desc: '基地后山圈出来的一块平静水域。水浅、天亮、没有借口。',
+    basedOn: 'OW/AOW 平静水域教学场地。',
+    difficulty: 1,
+    maxDepth: 8,
+    water: { vis: 30, tint: 0x0d3a40, glow: 0x4fd8d0 },
+    route: [
+      { p: [0, -1, 0],     r: 7,   room: 'entry', sky: true, name: '训练池' },
+      { p: [0, -3, -12],   r: 5,   sky: true, feats: ['line_start', 'algae'], name: '浅水平台' },
+      { p: [-4, -4, -24],  r: 4 },
+      { p: [-10, -8, -36], r: 5.5, room: 'hall', feats: ['stalactite', 'pearl'], name: '深水沟' },
+      { p: [-16, -7, -48], r: 3.2, feats: ['silt'], name: '沙地尽头' },
+    ],
+    branches: [],
+    creatures: ['catfish', 'blindfish', 'shrimp', 'algae', 'pearl', 'stalactite'],
+    objectives: ['explore'],
+    hazards: { silt: 0.15, narcosis: 0, flow: 0 },
+  },
+
+  {
+    id: 'harbor',
+    name: '军港夜潜',
+    en: 'Night Harbor',
+    hidden: true,
+    sub: '战术训练',
+    desc: '入夜后的军港。水面以上是探照灯，水面以下是你的。',
+    basedOn: '军队潜水员训练想定：CCR 密闭循环、静默渗透、爆破物布放。',
+    difficulty: 2,
+    maxDepth: 14,
+    water: { vis: 11, tint: 0x071e26, glow: 0x2a5a70 },
+    route: [
+      { p: [0, -1, 0],      r: 8,   room: 'entry', sky: true, name: '码头' },
+      { p: [-4, -6, -16],   r: 5,   feats: ['line_start'] },
+      { p: [-12, -10, -34], r: 4.5, feats: ['debris'], name: '1号浮标' },
+      { p: [-22, -13, -54], r: 6.5, room: 'hall', feats: ['debris'], name: '船底' },
+      { p: [-30, -14, -70], r: 3.5 },
+      { p: [-38, -14, -84], r: 4,   feats: ['debris'], name: '锚链' },
+    ],
+    branches: [],
+    creatures: ['shrimp', 'bacteria', 'fossil'],
+    objectives: ['explore'],
+    hazards: { silt: 0.2, narcosis: 0.1, flow: 0.1 },
+  },
+];
+
+// ———————— 海潜地图 ————————
+// kind:'ocean'。route 节点 p:[x, up, z]：up = 离海底高度（abs:true 时为绝对 y；surface:true 为水面；ref:'wreck' 时 p 为相对沉船中心的 [dx, 离船底高度, dz]）。
+// ocean：terrain 参数 {half 半边长, shallow/deep 浅深端水深, len 渐变距离, rough 起伏, wall 断崖, wreck 沉船, guide 是否沿路线牵绳}
+MAPS.push(
+  {
+    id: 'reef', kind: 'ocean', name: '珊瑚花园', en: 'Coral Garden', sub: '浅礁',
+    desc: '阳光直达海底的浅礁。鱼群像云一样翻动，海龟在头顶慢慢划过。第一次下海，从这里开始。',
+    basedOn: '原型：红海与东南亚的珊瑚礁潜点——水清、流缓、生物多，最适合第一次下海的潜水员。',
+    difficulty: 1, maxDepth: 18,
+    water: { vis: 34, tint: 0x0e5f8c, glow: 0x4fd0ff, dayLen: 32 },
+    ocean: { half: 110, shallow: 5, deep: 16, len: 150, rough: 1.2 },
+    route: [
+      { p: [0, 0, 0], surface: true, r: 10, room: 'entry', sky: true, name: '潜水船' },
+      { p: [0, 1.5, -14], r: 4, feats: ['line_start', 'sponge'], name: '锚点' },
+      { p: [-8, 2, -34], r: 5, feats: ['damselfish', 'coral'], name: '礁坪' },
+      { p: [6, 2, -54], r: 5, room: 'hall', feats: ['clownfish', 'anemone'], name: '海葵田' },
+      { p: [-6, 3, -76], r: 5, feats: ['parrotfish', 'seafan'], name: '珊瑚塔' },
+      { p: [8, 7, -98], r: 6, room: 'hall', feats: ['turtle'], name: '海龟路口' },
+      { p: [-4, 2, -120], r: 5, feats: ['nudibranch', 'coral'], name: '礁沿' },
+      { p: [10, 4, -140], r: 5, room: 'hall', feats: ['jellyfish', 'ray', 'grouper'], name: '深礁' },
+    ],
+    branches: [],
+    creatures: ['damselfish', 'clownfish', 'parrotfish', 'grouper', 'turtle', 'ray', 'jellyfish', 'nudibranch', 'coral', 'anemone', 'seafan', 'sponge'],
+    objectives: ['explore', 'photo', 'salvage'],
+    hazards: { silt: 0.1, narcosis: 0.05, flow: 0.15 },
+  },
+  {
+    id: 'wreck', kind: 'ocean', name: '海鹞号沉船', en: 'Wreck of the Seabird', sub: '沉船',
+    desc: '一艘货轮躺在二十多米深的沙底，甲板上长满珊瑚。舱口很诱人，也很要命。',
+    basedOn: '原型：红海与北海的沉船潜点——货轮残骸成了鱼群与珊瑚的家，也是沉船潜水事故的多发地。',
+    difficulty: 3, maxDepth: 32, gas: 320,
+    water: { vis: 24, tint: 0x0a4a70, glow: 0x3a9ccc, dayLen: 26 },
+    ocean: { half: 120, shallow: 20, deep: 28, len: 120, rough: 0.5, guide: true, wreck: { x: 0, z: -52, len: 36, wid: 9, hei: 8 } },
+    route: [
+      { p: [0, 0, 0], surface: true, r: 10, room: 'entry', sky: true, name: '潜水船' },
+      { p: [0, 1.5, -14], r: 4, feats: ['line_start', 'sponge'], name: '锚点' },
+      { p: [0, 2.5, -34], r: 5, feats: ['damselfish', 'parrotfish'], name: '残骸带' },
+      { ref: 'wreck', p: [-17, 5, 0], r: 4.5, feats: ['grouper', 'seafan'], name: '船首' },
+      { ref: 'wreck', p: [-8, 11, 0], r: 5, room: 'hall', feats: ['coral', 'sponge'], name: '甲板' },
+      { ref: 'wreck', p: [-5, 3.5, 0], r: 4, feats: ['octopus'], name: '货舱' },
+      { ref: 'wreck', p: [6, 3.5, 0], r: 4, feats: ['shipbell', 'nudibranch'], name: '机舱' },
+      { ref: 'wreck', p: [15, 5, 0], r: 5, room: 'hall', feats: ['grouper', 'jellyfish'], name: '船尾' },
+    ],
+    branches: [],
+    creatures: ['grouper', 'octopus', 'shipbell', 'damselfish', 'parrotfish', 'jellyfish', 'coral', 'seafan', 'sponge', 'nudibranch', 'turtle'],
+    objectives: ['explore', 'photo', 'salvage', 'rescue'],
+    hazards: { silt: 0.7, narcosis: 0.35, flow: 0.45, lineBreak: 0.1 },
+  },
+  {
+    id: 'bluewall', kind: 'ocean', name: '蓝色断崖', en: 'The Blue Wall', sub: '漂流',
+    desc: '浅礁在这里突然断掉，下面是望不到底的蓝。水流推着你沿崖壁漂，鲨鱼和鹰鳐在深蓝里巡游。',
+    basedOn: '原型：马尔代夫、帕劳与科莫多的漂流断崖潜点——强流、深蓝、大型生物。',
+    difficulty: 4, maxDepth: 45, gas: 320,
+    water: { vis: 40, tint: 0x0a4f85, glow: 0x3a9ae0, dayLen: 40 },
+    ocean: { half: 130, shallow: 10, deep: 14, len: 200, rough: 0.8, wall: { axis: 'x', at: 0, drop: 80, width: 7 }, current: [0, 0, -1] },
+    route: [
+      { p: [14, 0, 0], surface: true, r: 10, room: 'entry', sky: true, name: '潜水船' },
+      { p: [14, 1.5, -12], r: 4, feats: ['line_start', 'sponge'], name: '锚点' },
+      { p: [8, 2, -34], r: 5, feats: ['damselfish', 'seafan'], name: '礁肩' },
+      { abs: true, p: [-4, -18, -58], r: 6, feats: ['parrotfish', 'sponge'], name: '崖壁' },
+      { abs: true, p: [-8, -26, -84], r: 7, room: 'hall', feats: ['ray'], name: '蓝水' },
+      { abs: true, p: [-6, -30, -110], r: 7, feats: ['shark'], name: '鲨鱼线' },
+      { abs: true, p: [-10, -38, -134], r: 7, room: 'hall', feats: ['turtle', 'jellyfish'], name: '深蓝' },
+      { abs: true, p: [-6, -42, -160], r: 7, feats: ['shark', 'ray'], name: '断崖尽头' },
+    ],
+    branches: [],
+    creatures: ['damselfish', 'parrotfish', 'ray', 'shark', 'turtle', 'jellyfish', 'seafan', 'sponge'],
+    objectives: ['explore', 'photo'],
+    hazards: { silt: 0.05, narcosis: 0.8, flow: 0.9, freeflow: 0.2 },
+  },
+);
+
+// 生物观察池：每个节点放一个指定物种，供「洞穴生物学家」课程逐个认识（顺序即课程顺序）
+export const LAB_SPECIES = ['catfish', 'trout', 'blindfish', 'cavefish', 'shrimp', 'isopod', 'crayfish', 'snail',
+  'olm', 'algae', 'fern', 'bacteria', 'ironbac', 'stalactite', 'column', 'helictite', 'flowstone', 'pearl', 'gypsum', 'fossil', 'bones'];
+MAPS.push({
+  id: 'lab', name: '生物观察池', en: 'Specimen Pool', hidden: true, sub: '生物观察',
+  desc: '一条把整个洞穴生态按顺序摆出来的观察水道。', basedOn: '洞穴生物学家课程的教学场地。',
+  difficulty: 1, maxDepth: 8, water: { vis: 28, tint: 0x0d3a40, glow: 0x4fd8d0 },
+  route: [
+    { p: [0, -1, 0], r: 7, room: 'entry', sky: true, name: '观察池入口' },
+    ...LAB_SPECIES.map((sp, i) => ({ p: [8 * Math.sin(i * 0.6), -3 - (i % 3) * 0.8, -14 - i * 10.5], r: 4.6, feats: i === 0 ? ['line_start', sp] : [sp], name: SPECIES[sp].name })),
+  ],
+  branches: [], creatures: Object.keys(SPECIES), objectives: ['explore'], hazards: { silt: 0.1, narcosis: 0, flow: 0 },
+});
+
+export function getMap(id) { return MAPS.find(m => m.id === id); }
+
+export const OBJECTIVE_DEFS = {
+  explore: { name: '探索标记', icon: '◈', brief: '抵达目标洞厅，摸一下标记石，然后活着回来。' },
+  photo:   { name: '指定拍摄', icon: '▣', brief: '拍到目标生物/地质，照片评分合格才算数。' },
+  salvage: { name: '打捞回收', icon: '▤', brief: '找到遗失物，带回出口。它比你想象的重。' },
+  rescue:  { name: '搜救拖带', icon: '✚', brief: '找到被困者，挂上拖带，慢—慢—带出来。' },
+};
+
+// —— 本地化展示助手（数据本体保持中文原文，展示时走 t()） ——
+export const mapName = (m) => (m && (getLang() === 'en' ? m.en : m.name));
+export const spName = (id) => (SPECIES[id] ? t(SPECIES[id].name) : id);
+export const endingName = (id) => (ENDINGS[id] ? t(ENDINGS[id].name) : '');
