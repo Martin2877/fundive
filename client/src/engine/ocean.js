@@ -12,13 +12,22 @@ const UP = new THREE.Vector3(0, 1, 0);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const SURFACE_Y = -0.35;
 
-// 地形高度函数（海底 y，负值）。纯函数，测试与放置共用
-export function makeTerrain(map) {
+// 地形高度函数（海底 y，负值）。纯函数，测试与放置共用。
+// seed 扰动噪声相位与起伏幅度：同一潜点在不同宇宙里海底不一样。
+export function makeTerrain(map, seed) {
   const g = map.ocean, w = g.wreck;
+  let ox = 0, oz = 0, amp = 1, len = g.len;
+  if (seed != null) {
+    const trng = universeRng(map.id, `${seed}::terrain`);
+    ox = range(trng, -60, 60); oz = range(trng, -60, 60);
+    amp = range(trng, 0.7, 1.4); len = g.len * range(trng, 0.85, 1.2);
+  }
   const base = (x, z) => {
-    let y = -(g.shallow + (g.deep - g.shallow) * smooth(0, 1, -z / g.len));
-    y += fbm3(x * 0.04 + 3, 0, z * 0.04, 3) * g.rough * 2.2 + fbm3(x * 0.18, 0, z * 0.18, 2) * 0.35 * g.rough;
+    let y = -(g.shallow + (g.deep - g.shallow) * smooth(0, 1, -z / len));
+    y += fbm3(x * 0.04 + 3 + ox, 0, z * 0.04 + oz, 3) * g.rough * 2.2 * amp + fbm3(x * 0.18 + ox, 0, z * 0.18 + oz, 2) * 0.35 * g.rough * amp;
     if (g.wall) { const u = g.wall.axis === 'x' ? x : z; y -= g.wall.drop * smooth(g.wall.at + g.wall.width, g.wall.at - g.wall.width, u); }
+    // 蓝洞：海底垂直塌陷的圆井——平底半径 r*0.55，r 外是斜坡沿
+    if (g.pit) { const d = Math.hypot(x - g.pit.x, z - g.pit.z); y -= g.pit.depth * (1 - smooth(g.pit.r * 0.55, g.pit.r, d)); }
     return y;
   };
   const plateau = w ? base(w.x, w.z) - 0.3 : null;
@@ -31,10 +40,12 @@ export function makeTerrain(map) {
   return { h, plateau };
 }
 
-// 沉船箱体（世界坐标 AABB）。侧壁留门洞、甲板留舱口、舱壁留通道——可以钻进去，也可能被卡住/搅沙
+// 沉船箱体（世界坐标 AABB）。侧壁留门洞、甲板留舱口、舱壁留通道——可以钻进去，也可能被卡住/搅沙。
+// 返回 { boxes 碰撞体, props 内景道具（也参与碰撞，带各自颜色） }
 function wreckBoxes(w, y0, rng) {
-  const B = [], L = w.len, W = w.wid, H = w.hei;
+  const B = [], props = [], L = w.len, W = w.wid, H = w.hei;
   const box = (x0, x1, a, b, z0, z1) => B.push({ min: new THREE.Vector3(w.x + x0, y0 + a, w.z + z0), max: new THREE.Vector3(w.x + x1, y0 + b, w.z + z1) });
+  const prop = (x0, x1, a, b, z0, z1, c) => props.push({ min: new THREE.Vector3(w.x + x0, y0 + a, w.z + z0), max: new THREE.Vector3(w.x + x1, y0 + b, w.z + z1), c });
   box(-L / 2, L / 2, 0, 0.6, -W / 2, W / 2);
   for (const [x0, x1] of [[-18, -10], [-8, -1.5], [3, 12], [14, 18]]) {
     const top = H - 1.2 - rng() * 1.4;
@@ -45,8 +56,30 @@ function wreckBoxes(w, y0, rng) {
   box(L / 2 - 0.5, L / 2, 0, H - 0.6, -W / 2, W / 2);
   for (const [x0, x1] of [[-18, -12], [-9, -3], [2, 8], [11, 18]]) box(x0, x1, H - 1.2, H - 0.7, -W / 2, W / 2);
   for (const [z0, z1] of [[-W / 2, -1.5], [1.5, W / 2]]) box(-1, -0.6, 0, H - 1.2, z0, z1);
-  box(12, 17, H - 0.7, H + 3.3, -3, 3);
-  return B;
+  // 舰桥海图室：不再是实心块——四面墙 + 顶，朝船首的前壁留门洞（从甲板舱口翻上来就能进）
+  box(12, 12.4, H - 0.7, H + 2.2, -3, -0.9);
+  box(12, 12.4, H - 0.7, H + 2.2, 0.9, 3);
+  box(12, 12.4, H + 2.2, H + 2.9, -0.9, 0.9);
+  box(12, 17, H - 0.7, H + 2.9, -3, -2.55);
+  box(12, 17, H - 0.7, H + 2.9, 2.55, 3);
+  box(16.55, 17, H - 0.7, H + 2.9, -3, 3);
+  box(12, 17, H + 2.9, H + 3.3, -3, 3);
+  // —— 内景道具：贴着两舷摆，舱中留过道 ——
+  const crateCols = [[0.22, 0.4, 0.45], [0.42, 0.38, 0.24], [0.5, 0.3, 0.22], [0.3, 0.36, 0.3]];
+  for (const [x, z, s, hh] of [[-8.6, -3.6, 1.4, 1.2], [-7, -3.5, 1.1, 1.7], [-4.6, -3.6, 1.3, 0.95], [-8.1, 2.5, 1.2, 1.3], [-5.2, 2.6, 1, 1.1], [-2.6, -3.5, 1, 1.25],
+    [2.4, -3.55, 1.1, 1.15], [4.1, -3.6, 0.95, 1.45], [7.6, -3.55, 1.25, 1.05], [10.6, -3.5, 1.05, 1.25], [4.8, 2.55, 1.05, 1.15], [8.6, 2.6, 0.9, 1]])
+    prop(x, x + s, 0.6, 0.6 + hh, z, z + Math.min(1.15, s + 0.2), crateCols[(props.length) % crateCols.length]);
+  // 前舱一台锈成一团的运输车
+  prop(-7.4, -4.2, 0.6, 2.1, -2.5, -0.9, [0.5, 0.34, 0.24]);
+  prop(-4.2, -3.3, 0.6, 2.5, -2.35, -1.05, [0.46, 0.3, 0.2]);
+  prop(-7.2, -3.5, 0.6, 0.95, -2.45, -1.0, [0.16, 0.14, 0.13]);
+  // 油桶
+  for (const [x, z] of [[1.2, -3.3], [1.7, -3.45], [-11.6, 2.7], [-11.1, 3.0]]) prop(x, x + 0.5, 0.6, 1.5, z, z + 0.5, [0.5, 0.28, 0.18]);
+  // 海图室里：海图桌 + 保险柜
+  prop(13.8, 15.2, H - 0.7, H + 0.1, -0.7, 0.7, [0.4, 0.3, 0.2]);
+  prop(16.0, 16.5, H - 0.7, H + 0.5, -2.4, -1.4, [0.24, 0.3, 0.3]);
+  for (const pr of props) B.push({ min: pr.min, max: pr.max });
+  return { boxes: B, props };
 }
 
 const colored = (geo, c, jitter = 0.1) => {
@@ -60,9 +93,9 @@ export function buildOcean(map, uni) {
   const g = map.ocean, rng = universeRng(map.id, `${uni.seed}::ocean`);
   const QC = quality.level;
   const group = new THREE.Group();
-  const { h, plateau } = makeTerrain(map);
+  const { h, plateau } = makeTerrain(map, uni.seed);
   const wr = g.wreck;
-  const boxes = wr ? wreckBoxes(wr, plateau, rng) : [];
+  const { boxes, props } = wr ? wreckBoxes(wr, plateau, rng) : { boxes: [], props: [] };
 
   // —— 海底网格 ——
   const SEG = 130, size = g.half * 2;
@@ -91,6 +124,13 @@ export function buildOcean(map, uni) {
       bg.translate(c.x, c.y, c.z);
       return colored(bg.toNonIndexed(), [0.62, 0.38, 0.27], 0.18);
     });
+    // 内景道具（箱/桶/卡车/海图桌）——各自的颜色
+    for (const pr of props) {
+      const s = pr.max.clone().sub(pr.min), c = pr.min.clone().addScaledVector(s, 0.5);
+      const bg = new THREE.BoxGeometry(s.x, s.y, s.z);
+      bg.translate(c.x, c.y, c.z);
+      geos.push(colored(bg.toNonIndexed(), pr.c, 0.14));
+    }
     for (const [mx, mh] of [[-6, 13], [4, 11]]) {
       const m = new THREE.CylinderGeometry(0.18, 0.28, mh, 8); m.translate(wr.x + mx, plateau + wr.hei - 0.7 + mh / 2, wr.z);
       geos.push(colored(m.toNonIndexed(), [0.5, 0.34, 0.26]));
@@ -109,7 +149,7 @@ export function buildOcean(map, uni) {
     else if (n.ref === 'wreck') pos = new THREE.Vector3(wr.x + n.p[0], plateau + n.p[1], wr.z + n.p[2]);
     else if (n.abs) pos = new THREE.Vector3(n.p[0], n.p[1], n.p[2]);
     else pos = new THREE.Vector3(n.p[0], h(n.p[0], n.p[2]) + n.p[1] + n.r * 0.5, n.p[2]);
-    return { i, pos, r: n.r, name: n.name, feats: n.feats || [], room: n.room, sky: n.sky, sample: i };
+    return { i, pos, r: n.r, name: n.name, feats: n.feats || [], room: n.room, sky: n.sky, inside: n.inside, sample: i };
   });
 
   // —— 表面查询：海底与沉船顶面 ——
@@ -131,6 +171,7 @@ export function buildOcean(map, uni) {
     return hit;
   };
   const lim = g.half - 3;
+  const obstacles = [];
   const nav = {
     clamp(pos, radius = 0.45) {
       let hit = false;
@@ -141,6 +182,7 @@ export function buildOcean(map, uni) {
       if (pos.y < f) { pos.y = f; hit = true; }
       return hit;
     },
+    obstacles,
     // 与洞穴同形：clearance = 离最近地面的高度；r 固定 3，这样 clearance < r/2 即"贴近底部"
     closest(pos, out = { p: new THREE.Vector3(), r: 3, dist: 0, s: 0, path: 'main', tan: UP }) {
       const d = pos.y - surfaceBelow(pos.x, pos.y, pos.z);
@@ -185,6 +227,15 @@ export function buildOcean(map, uni) {
       for (let k = 1; k <= n; k++) { const p = prev.clone().lerp(q, k / n); if (q.y < plateau + 2) p.y = Math.max(p.y, h(p.x, p.z) + 0.4); linePts.push(p); }
       prev = q;
     }
+  } else if (g.trail) {
+    // 沿主路线铺引导绳（蓝洞/海藻林这类非沉船图）——锚点之后顺节点一路牵到最深节
+    let prev = new THREE.Vector3(anchor.x, aF, anchor.z);
+    for (let i = 2; i < nodes.length; i++) {
+      const q = nodes[i].pos.clone().add(new THREE.Vector3(0, 0.3, 0));
+      const n = Math.max(1, Math.round(prev.distanceTo(q) / 2.5));
+      for (let k = 1; k <= n; k++) { const p = prev.clone().lerp(q, k / n); p.y = Math.max(p.y, surfaceBelow(p.x, p.y + 1, p.z) + 0.4); linePts.push(p); }
+      prev = q;
+    }
   }
   let lineGap = null;
   if (uni.mods.lineBreak && linePts.length > 12) {
@@ -208,6 +259,16 @@ export function buildOcean(map, uni) {
   surface.position.set(boat.x, SURFACE_Y, boat.z);
   group.add(surface);
 
+  // —— 船底信标：一闪一闪的潜水灯——水下老远就能认出的"家" ——
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), new THREE.MeshBasicMaterial({ color: 0xbffff2 }));
+  beacon.position.set(boat.x, -0.9, boat.z);
+  const beaconGlow = new THREE.PointLight(0x7fe9ea, 7, 22);
+  beaconGlow.position.copy(beacon.position);
+  const beaconBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 1.3, 8, 12, 1, true),
+    new THREE.MeshBasicMaterial({ color: map.water.glow, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  beaconBeam.position.set(boat.x, -4.6, boat.z);
+  group.add(beacon, beaconGlow, beaconBeam);
+
   // —— 阳光（随深度衰减）——
   const sun = new THREE.DirectionalLight(0xdff4ff, 1.4);
   sun.position.set(30, 80, 20);
@@ -215,7 +276,8 @@ export function buildOcean(map, uni) {
 
   // —— 装饰：礁石 + 珊瑚头（实例化）——
   const near = (x, z) => nodes.some(n => Math.hypot(n.pos.x - x, n.pos.z - z) < 14);
-  const spot = () => { for (let t = 0; t < 30; t++) { const x = range(rng, -g.half * 0.85, g.half * 0.85), z = range(rng, -g.half * 0.85, g.half * 0.85), y = h(x, z); const inWreck = wr && Math.abs(x - wr.x) < wr.len / 2 + 3 && Math.abs(z - wr.z) < wr.wid / 2 + 3; if (!inWreck && y > -30 && (near(x, z) || chance(rng, 0.35))) return [x, y, z]; } return null; };
+  const minY = g.pit ? -(map.maxDepth + 20) : -30;   // 蓝洞图：装饰可以一直贴到井底
+  const spot = () => { for (let t = 0; t < 30; t++) { const x = range(rng, -g.half * 0.85, g.half * 0.85), z = range(rng, -g.half * 0.85, g.half * 0.85), y = h(x, z); const inWreck = wr && Math.abs(x - wr.x) < wr.len / 2 + 3 && Math.abs(z - wr.z) < wr.wid / 2 + 3; const inPit = g.pit && Math.hypot(x - g.pit.x, z - g.pit.z) < g.pit.r * 0.75; if (!inWreck && !inPit && y > minY && (near(x, z) || chance(rng, 0.35))) return [x, y, z]; } return null; };
   const nRock = { low: 90, mid: 150, high: 220 }[QC], nCoral = g.shallow < 12 ? { low: 220, mid: 380, high: 600 }[QC] : { low: 70, mid: 120, high: 200 }[QC];
   const rocks = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), makeCaveMaterial({ sand: 0.3, normalK: 1.2 }), nRock);
   const rg = rocks.geometry, rcol = new Float32Array(rg.attributes.position.count * 3).fill(0.55);
@@ -228,6 +290,7 @@ export function buildOcean(map, uni) {
     E.set(rng() * 3, rng() * 3, rng() * 3); Q.setFromEuler(E);
     M4.compose(new THREE.Vector3(s[0], s[1] + k * 0.25, s[2]), Q, S.set(k * range(rng, 0.8, 1.6), k * 0.7, k));
     rocks.setMatrixAt(nr++, M4);
+    if (k > 0.9) obstacles.push({ p: new THREE.Vector3(s[0], s[1] + k * 0.25, s[2]), r: k * 1.05 });   // 大礁石是硬碰撞
   }
   rocks.count = nr; rocks.castShadow = false;
   group.add(rocks);
@@ -252,16 +315,74 @@ export function buildOcean(map, uni) {
   coral.count = nc;
   group.add(coral);
 
+  // —— 海藻森林：高高的褐藻叶片从海底长到天光里（软体不做碰撞，穿行其间） ——
+  if (g.kelp) {
+    const nK = { low: 160, mid: 280, high: 460 }[QC];
+    const parts = [];
+    for (let k = 0; k < 4; k++) {
+      const c = new THREE.ConeGeometry(0.07, 1, 5);
+      c.translate(0, 0.5, 0);
+      c.rotateZ(range(rng, -0.32, 0.32)); c.rotateY(k * 1.7);
+      c.translate(Math.cos(k * 2.1) * 0.17, 0, Math.sin(k * 2.1) * 0.17);
+      parts.push(c);
+    }
+    const kelpGeo = mergeGeometries(parts.map(x => { x.deleteAttribute('uv'); return x.toNonIndexed(); }));
+    const kelp = new THREE.InstancedMesh(kelpGeo, new THREE.MeshStandardMaterial({ roughness: 0.65, emissive: 0x0a2a12, emissiveIntensity: 0.35 }), nK);
+    const kpal = [0x1e5a28, 0x2e6a34, 0x4a7a2e, 0x356a40].map(c => new THREE.Color(c));
+    let nk = 0;
+    for (let i = 0; i < nK * 3 && nk < nK; i++) {
+      const x = range(rng, -g.half * 0.8, g.half * 0.8), z = range(rng, -g.half * 0.85, g.half * 0.85), y = h(x, z);
+      if (y > -4.5 || y < -26 || !(near(x, z) || chance(rng, 0.3))) continue;   // 海带要光，且贴着路线长
+      const hh = range(rng, 3, Math.min(9, -y - 1));
+      E.set(range(rng, -0.1, 0.1), rng() * 6, range(rng, -0.1, 0.1)); Q.setFromEuler(E);
+      M4.compose(new THREE.Vector3(x, y - 0.1, z), Q, S.set(1, hh, 1));
+      kelp.setMatrixAt(nk, M4); kelp.setColorAt(nk, kpal[intRange(rng, 0, kpal.length - 1)]); nk++;
+    }
+    kelp.count = nk;
+    group.add(kelp);
+  }
+
   // —— 天窗（水面光斑）：给焦散与体积光提供"光从上方来"的位置 ——
   const skylights = [{ pos: new THREE.Vector3(boat.x, SURFACE_Y, boat.z), r: 14 }];
   const far = nodes[Math.min(nodes.length - 2, 5)].pos;
   skylights.push({ pos: new THREE.Vector3(far.x, SURFACE_Y, far.z), r: 14 });
   skylights.slice(0, 4).forEach((sk, i) => CAUSTIC.uSky.value[i].set(sk.pos.x, SURFACE_Y, sk.pos.z, sk.r));
   CAUSTIC.uSkyN.value = skylights.length;
+  CAUSTIC.uCCol.value.setRGB(0.5, 0.9, 1.0);   // 恢复默认焦散色（ice.js 会调暗）
 
   // —— 水流 ——
+  // 基础流 = 全图缓漂；hazards.flow 越高加越多戏：激流带(横穿)、底层暗流(变向)、洗衣机流(打转+抛)。
   const flowDir = new THREE.Vector3(...(g.current || [0, 0, -1])).normalize();
-  const flowZones = [{ pos: new THREE.Vector3(0, -15, -g.half * 0.5), dir: flowDir, r: g.half * 0.6 }];
+  const flowZones = [{ pos: new THREE.Vector3(0, -15, -g.half * 0.5), dir: flowDir, r: g.half * 0.6, strength: 1 }];
+  const hookPoints = [];
+  const fh = map.hazards?.flow || 0;
+  if (fh > 0.25) {
+    // 激流带：横切主线中段的一条窄强流——不挂住就会被平推，横穿过去才到得了深处
+    const mid = mainSpine[Math.floor(mainSpine.length * 0.55)].p;
+    const cross = flowDir.clone();
+    if (g.wall) cross.set(g.wall.axis === 'x' ? 1 : 0, 0, g.wall.axis === 'x' ? 0 : 1).multiplyScalar(g.wall.at < 0 ? -1 : 1);   // 崖边流顺崖走
+    flowZones.push({ pos: mid.clone().addScaledVector(flowDir, -6).setY(mid.y - 1), dir: cross, r: 13, strength: 2.6, type: 'stream', name: '激流带' });
+  }
+  if (fh > 0.4) {
+    // 底层暗流：贴着海底，方向慢慢倒转——巡航时不知不觉把你推回去
+    const deep = mainSpine[Math.floor(mainSpine.length * 0.8)].p;
+    const dpos = deep.clone(); dpos.y = h(dpos.x, dpos.z) + 2.5;
+    flowZones.push({ pos: dpos, dir: flowDir.clone().negate(), r: 20, strength: 1.5, type: 'cross', period: 24, name: '底层暗流' });
+  }
+  if (fh > 0.6) {
+    // 洗衣机流：礁体背风面的打转水——转着把你往上抛又按下去，硬扛会吐
+    const wz = mainSpine[Math.floor(mainSpine.length * 0.65)].p;
+    const wpos = wz.clone().addScaledVector(flowDir, 10);
+    wpos.y = h(wpos.x, wpos.z) + 5;
+    flowZones.push({ pos: wpos, dir: flowDir, r: 11, strength: 2.4, type: 'washer', name: '洗衣机流' });
+  }
+  // 挂钩点：激流带/洗衣机流附近的大礁石、锚点、沉船结构——G 挂上稳住身体
+  for (const z of flowZones) {
+    if (!z.type) continue;
+    const cand = obstacles.filter(o => Math.hypot(o.p.x - z.pos.x, o.p.z - z.pos.z) < z.r + 8).sort((a, b2) => b2.r - a.r)[0];
+    if (cand) hookPoints.push({ p: cand.p.clone().setY(cand.p.y + cand.r * 0.5), zone: z.name });
+    else hookPoints.push({ p: z.pos.clone().setY(h(z.pos.x, z.pos.z) + 0.6), zone: z.name });   // 海底礁缝
+  }
 
   // —— 沉船内部泥沙区 ——
   const siltZones = wr ? [
@@ -278,10 +399,16 @@ export function buildOcean(map, uni) {
     group, nav, wallPoint, mainSpine, kind: 'ocean', terrainH: h, surfaceBelow, boxes, plateau,
     entryPos: boat.clone(), entryR: 10,
     nodes, skylights, surfaces: [surface], shaftMat: { uniforms: { uT: { value: 0 } }, visible: false },
-    pockets: [], branchInfo: [], siltZones, flowZones, photoables: [], creatureAnchors: [],
+    pockets: [], branchInfo: [], siltZones, flowZones, hookPoints, photoables: [], creatureAnchors: [],
     linePts, lineGap,
     objectiveSpot: { pos: objSpot, r: objNode.r, name: objNode.name },
     exitS: acc,
-    update(dt, depth) { sun.intensity = 0.06 + 1.2 * Math.exp(-Math.max(0, depth) / sunDepthK); },
+    update(dt, depth) {
+      sun.intensity = 0.16 + 1.25 * Math.exp(-Math.max(0, depth) / sunDepthK);
+      this._bcT = (this._bcT || 0) + dt;
+      const pl = 0.55 + 0.45 * Math.sin(this._bcT * 2.6);
+      beaconGlow.intensity = 3 + 8 * pl;
+      beacon.scale.setScalar(0.75 + 0.5 * pl);
+    },
   };
 }

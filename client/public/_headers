@@ -1,0 +1,5 @@
+# Cloudflare Pages：Vite 产物带内容哈希，放心长缓存
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate

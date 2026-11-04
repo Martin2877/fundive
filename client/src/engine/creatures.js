@@ -6,76 +6,173 @@ import { fbm3 } from './noise.js';
 import { softSprite } from './water.js';
 
 const _v = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
 
-// ---------- 程序化鱼：拉伸变形的鱼体 + 扇形尾鳍 + 背鳍/胸鳍 + 眼点 ----------
+// ---------- 程序化鱼：参数化体型 —— 每种鱼有自己的轮廓、尾型、鳍组与花纹 ----------
+// FISH_BODY[sp]: c体色 h体高比 w体宽比 len体长 tail尾型 dorsal背鳍 eye眼径
+//   特殊件: beak喙 mouth大口 mottle斑块 spots斑点 gills鳃裂 barbels须 clown白环
+//   horn额隆 adipose脂鳍 snout吻锥 belly腹色 veil无眼鳍纱 headW头宽
+const FISH_BODY = {
+  cavefish:   { c: 0xe6cabc, len: 0.34, h: 0.55, w: 0.30, tail: 'round', dorsal: 'short', eye: 0.009, horn: true },
+  blindfish:  { c: 0xecdeda, len: 0.30, h: 0.60, w: 0.28, tail: 'round', dorsal: 'none', eye: 0, veil: true },
+  catfish:    { c: 0x3f4447, len: 0.55, h: 0.42, w: 0.55, tail: 'square', dorsal: 'short', eye: 0.016, barbels: 4, headW: 1.3 },
+  trout:      { c: 0x8a9a8a, len: 0.50, h: 0.44, w: 0.33, tail: 'fork', dorsal: 'short', eye: 0.020, adipose: true, spots: 0x2e2c24 },
+  damselfish: { c: 0x2f7fe0, len: 0.30, h: 0.95, w: 0.30, tail: 'fork', dorsal: 'long', eye: 0.024 },
+  clownfish:  { c: 0xff7a1a, len: 0.28, h: 0.74, w: 0.40, tail: 'round', dorsal: 'short', eye: 0.022, clown: true },
+  parrotfish: { c: 0x2fb8a0, len: 0.55, h: 0.62, w: 0.44, tail: 'lunate', dorsal: 'long', eye: 0.020, beak: 0xefe8d0, edge: 0xe04a8a },
+  grouper:    { c: 0x8a6a4a, len: 0.62, h: 0.80, w: 0.60, tail: 'round', dorsal: 'long', eye: 0.024, mouth: 0.085, mottle: 0x54432e },
+  shark:      { c: 0x7d8a90, len: 0.95, h: 0.38, w: 0.34, tail: 'hetero', dorsal: 'tall', eye: 0.017, snout: 0.16, pec: 0.34, gills: 4, belly: 0xd6dcd8 },
+  whitefish:  { c: 0xc9d4d6, len: 0.46, h: 0.44, w: 0.30, tail: 'fork', dorsal: 'short', eye: 0.020 },
+};
+const _fTri = (pts) => {
+  const fg = new THREE.BufferGeometry();
+  fg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  fg.computeVertexNormals();
+  return fg;
+};
 export function makeFish(sp, rng) {
+  const P = FISH_BODY[sp] || { c: 0xcfc8b8, len: 0.4, h: 0.6, w: 0.36, tail: 'round', dorsal: 'short', eye: 0.02 };
   const g = new THREE.Group();
-  const colors = { cavefish: 0xe6cabc, blindfish: 0xecdeda, catfish: 0x3f4447, trout: 0x8a9a8a, damselfish: 0x2f7fe0, clownfish: 0xff7a1a, parrotfish: 0x2fb8a0, grouper: 0x8a6a4a, shark: 0x7d8a90 };
-  const base = colors[sp] || 0xcfc8b8;
-  const mat = new THREE.MeshStandardMaterial({ color: base, roughness: 0.45, metalness: 0.05, transparent: true, opacity: sp === 'catfish' ? 1 : 0.93 });
-  const finMat = new THREE.MeshStandardMaterial({ color: base, roughness: 0.7, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
-  // 鱼体：球体沿 x 拉伸，尾端渐细、腹稍鼓、背部微弓
-  const bg = new THREE.SphereGeometry(0.16, 20, 12);
+  const mat = new THREE.MeshStandardMaterial({ color: P.c, roughness: 0.5, metalness: 0.05 });
+  const finMat = new THREE.MeshStandardMaterial({ color: P.c, roughness: 0.7, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
+  const L = P.len / 2;
+  // 鱼体：球体变形——h/w 比例决定轮廓（雀鲷高扁 / 鲨鱼圆筒 / 鲶鱼头宽体扁），尾柄渐细，背部微弓
+  const bg = new THREE.SphereGeometry(0.16, 22, 14);
   const pa = bg.attributes.position;
   for (let i = 0; i < pa.count; i++) {
     let x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i);
-    const tailK = x < 0 ? Math.max(0.18, 1 + x / 0.22) : 1 - x * 0.35;   // 尾柄渐细
-    y *= 0.62 * tailK * (x < 0 ? 1 : 1 + 0.12 * (1 - x / 0.16));         // 腹部略鼓
-    z *= 0.38 * tailK;
-    y += x < 0 ? -x * 0.1 : x * x * 0.3;                                 // 背部弓线
-    pa.setXYZ(i, x * 1.9, y, z);
+    const u = x / 0.16;                                     // -1尾端 .. +1头端
+    const tailK = u < 0.3 ? Math.max(0.14, 1 - (0.3 - u) * 0.85) : 1;
+    const headK = u > 0.55 && P.headW ? P.headW : 1;
+    y *= P.h * tailK * (u < 0 ? 1 : 1 + 0.12 * (1 - u));    // 腹部略鼓
+    z *= P.w * tailK * headK;
+    y += u < 0 ? -u * 0.05 : u * u * 0.06;                  // 背部弓线
+    pa.setXYZ(i, x * (L / 0.16) * (P.snout && u > 0.7 ? 1 + P.snout : 1), y, z);
   }
   bg.computeVertexNormals();
   const body = new THREE.Mesh(bg, mat);
   g.add(body);
-  // 尾鳍：两片三角扇
-  const tailGeo = new THREE.BufferGeometry();
-  tailGeo.setAttribute('position', new THREE.Float32BufferAttribute([
-    -0.24, 0.02, 0, -0.42, 0.13, 0, -0.38, 0.0, 0,
-    -0.24, -0.02, 0, -0.42, -0.13, 0, -0.38, 0.0, 0,
-  ], 3));
-  tailGeo.computeVertexNormals();
-  const tail = new THREE.Mesh(tailGeo, finMat);
-  g.add(tail);
-  // 背鳍 + 腹鳍 + 胸鳍（薄三角片）
-  const finGeo = (w, h) => {
-    const fg = new THREE.BufferGeometry();
-    fg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, -w, 0, 0, -w * 0.6, h, 0], 3));
-    fg.computeVertexNormals();
-    return fg;
-  };
-  const dorsal = new THREE.Mesh(finGeo(0.16, 0.1), finMat);
-  dorsal.position.set(0.02, 0.1, 0);
-  g.add(dorsal);
-  const ventral = new THREE.Mesh(finGeo(0.1, -0.07), finMat);
-  ventral.position.set(0.05, -0.09, 0);
-  g.add(ventral);
+  if (P.belly) {
+    const bl = new THREE.Mesh(bg.clone(), new THREE.MeshStandardMaterial({ color: P.belly, roughness: 0.55 }));
+    bl.scale.set(0.985, 0.55, 0.985); bl.position.y = -0.02; g.add(bl);
+  }
+  // —— 尾鳍（Group，Fish.update 摆动 rotation.y） ——
+  const tailG = new THREE.Group();
+  const tx = -L * 0.92, ts = L * 0.55;
+  if (P.tail === 'fork') {
+    tailG.add(new THREE.Mesh(_fTri([tx, 0, 0, tx - ts, ts * 0.9, 0, tx - ts * 0.72, 0, 0]), finMat));
+    tailG.add(new THREE.Mesh(_fTri([tx, 0, 0, tx - ts, -ts * 0.9, 0, tx - ts * 0.72, 0, 0]), finMat));
+  } else if (P.tail === 'lunate') {   // 新月尾：窄长后掠
+    tailG.add(new THREE.Mesh(_fTri([tx, 0, 0, tx - ts * 1.15, ts * 0.85, 0, tx - ts * 0.8, ts * 0.12, 0]), finMat));
+    tailG.add(new THREE.Mesh(_fTri([tx, 0, 0, tx - ts * 1.15, -ts * 0.85, 0, tx - ts * 0.8, -ts * 0.12, 0]), finMat));
+  } else if (P.tail === 'hetero') {   // 歪形尾：上叶狭长、下叶短小——鲨鱼名片
+    tailG.add(new THREE.Mesh(_fTri([tx, 0.01, 0, tx - ts * 1.7, ts * 1.15, 0, tx - ts * 0.9, ts * 0.1, 0]), finMat));
+    tailG.add(new THREE.Mesh(_fTri([tx, -0.01, 0, tx - ts * 0.7, -ts * 0.45, 0, tx - ts * 0.45, -ts * 0.05, 0]), finMat));
+  } else if (P.tail === 'square') {
+    const t = new THREE.Mesh(new THREE.PlaneGeometry(ts * 0.5, ts * 0.8), finMat);
+    t.position.set(tx - ts * 0.25, 0, 0); t.rotation.y = Math.PI / 2; tailG.add(t);
+  } else {                            // round：椭圆扇尾
+    const t = new THREE.Mesh(new THREE.CircleGeometry(ts * 0.62, 10), finMat);
+    t.scale.set(0.7, 1.1, 1); t.position.set(tx - ts * 0.28, 0, 0); t.rotation.y = Math.PI / 2; tailG.add(t);
+  }
+  g.add(tailG);
+  // —— 背鳍 ——
+  const dk = P.h * 0.16;
+  if (P.dorsal === 'tall') {
+    const d = new THREE.Mesh(_fTri([L * 0.25, dk * 0.8, 0, -L * 0.15, dk * 0.8, 0, -L * 0.05, dk * 2.6, 0]), finMat);
+    g.add(d);
+  } else if (P.dorsal === 'long') {
+    for (let k = 0; k < 3; k++) {
+      const d = new THREE.Mesh(_fTri([L * 0.3 - k * L * 0.24, dk * 0.8, 0, L * 0.1 - k * L * 0.24, dk * 0.8, 0, L * 0.16 - k * L * 0.24, dk * (1.7 - k * 0.3), 0]), finMat);
+      g.add(d);
+    }
+  } else if (P.dorsal === 'short') {
+    g.add(new THREE.Mesh(_fTri([L * 0.15, dk * 0.8, 0, -L * 0.1, dk * 0.8, 0, 0, dk * 1.9, 0]), finMat));
+  }
+  if (P.adipose) {   // 鳟鱼的标志：背鳍与尾鳍之间的小脂鳍
+    g.add(new THREE.Mesh(_fTri([-L * 0.55, dk * 0.75, 0, -L * 0.72, dk * 0.75, 0, -L * 0.66, dk * 1.15, 0]), finMat));
+  }
+  // —— 胸鳍/腹鳍 ——
+  const pecLen = P.pec || L * 0.28;
   for (const s of [-1, 1]) {
-    const pec = new THREE.Mesh(finGeo(0.08, -0.06), finMat);
-    pec.position.set(0.14, -0.02, s * 0.05);
-    pec.rotation.x = s * 0.9;
+    const pec = new THREE.Mesh(_fTri([0, 0, 0, -pecLen, -pecLen * 0.35, 0, -pecLen * 0.55, -pecLen * 0.55, 0]), finMat);
+    pec.position.set(L * 0.35, -dk * 0.3, s * P.w * 0.16);
+    pec.rotation.x = s * (P.pec ? 0.5 : 0.95);
     g.add(pec);
   }
-  // 眼点（盲鱼退化只剩凹点）
-  const eyeMat = new THREE.MeshStandardMaterial({ color: sp === 'blindfish' ? 0x9a8f88 : 0x101214, roughness: 0.3 });
+  if (!P.pec) {   // 非鲨鱼的腹鳍
+    const v = new THREE.Mesh(_fTri([0, 0, 0, -L * 0.18, 0, 0, -L * 0.12, -dk * 1.1, 0]), finMat);
+    v.position.set(L * 0.2, -dk * 0.9, 0); g.add(v);
+  }
+  // —— 眼（盲鱼 eye=0 只剩皮下凹点） ——
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x101214, roughness: 0.3 });
   for (const s of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(sp === 'blindfish' ? 0.012 : 0.02, 6, 5), eyeMat);
-    eye.position.set(0.24, 0.04, s * 0.05);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.004, P.eye || 0.02), 6, 5), eyeMat);
+    eye.position.set(L * 0.78, dk * 0.35, s * P.w * 0.16);
     g.add(eye);
   }
-  if (sp === 'clownfish') {
+  // —— 种别特征 ——
+  const R = (n, a, b) => a + ((Math.sin(n * 127.3 + 45.7) + 1) / 2) * (b - a);   // 稳定伪随机，不耗 rng
+  if (P.clown) {
     const wm = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
-    for (const x of [0.12, -0.08]) { const r = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.014, 5, 14), wm); r.rotation.y = Math.PI / 2; r.position.x = x; r.scale.set(1, 1.1, 1); g.add(r); }
+    const bm = new THREE.MeshStandardMaterial({ color: 0x16181a, roughness: 0.6 });
+    for (const [x, rr] of [[L * 0.52, 0.062], [0, 0.075], [-L * 0.6, 0.05]]) {
+      const r = new THREE.Mesh(new THREE.TorusGeometry(rr, 0.016, 5, 16), wm);
+      r.rotation.y = Math.PI / 2; r.position.x = x; r.scale.set(1, 1.25, 0.9); g.add(r);
+      const e = new THREE.Mesh(new THREE.TorusGeometry(rr + 0.008, 0.006, 4, 16), bm);
+      e.rotation.y = Math.PI / 2; e.position.x = x - 0.016; e.scale.copy(r.scale); g.add(e);
+    }
   }
-  if (sp === 'catfish') {
-    body.scale.multiplyScalar(1.5); dorsal.scale.setScalar(1.5); ventral.scale.setScalar(1.5);
+  if (P.beak) {
+    const bk = new THREE.Mesh(new THREE.ConeGeometry(0.024, 0.05, 6), new THREE.MeshStandardMaterial({ color: P.beak, roughness: 0.4 }));
+    bk.rotation.z = -Math.PI / 2; bk.position.set(L * 0.99, -0.01, 0); g.add(bk);
+  }
+  if (P.mouth) {
+    const mo = new THREE.Mesh(new THREE.SphereGeometry(P.mouth, 8, 6), new THREE.MeshStandardMaterial({ color: 0x241a12, roughness: 0.9 }));
+    mo.scale.set(0.5, 0.5, 0.9); mo.position.set(L * 0.86, -P.mouth * 0.7, 0); g.add(mo);
+  }
+  if (P.mottle) {
+    const mm = new THREE.MeshStandardMaterial({ color: P.mottle, roughness: 0.8 });
+    for (let i = 0; i < 9; i++) {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(R(i, 0.02, 0.05), 6, 5), mm);
+      const a = R(i + 20, 0, 6.28), u = R(i + 40, -0.5, 0.8);
+      s.position.set(u * L * 0.8, dk * 0.5 * Math.cos(a * 2), Math.sin(a) * P.w * 0.16 * 0.96);
+      s.scale.z = 0.3; g.add(s);
+    }
+  }
+  if (P.spots) {
+    const sm = new THREE.MeshStandardMaterial({ color: P.spots, roughness: 0.8 });
+    for (let i = 0; i < 14; i++) {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(0.011, 5, 4), sm);
+      s.position.set(R(i, -L * 0.6, L * 0.55), R(i + 30, 0, dk * 1.4), (i % 2 ? 1 : -1) * P.w * 0.16 * 0.98);
+      s.scale.z = 0.3; g.add(s);
+    }
+  }
+  if (P.gills) {
+    const gm = new THREE.MeshStandardMaterial({ color: 0x3a4045, roughness: 0.8 });
+    for (const s of [-1, 1]) for (let k = 0; k < P.gills; k++) {
+      const sl = new THREE.Mesh(new THREE.BoxGeometry(0.008, dk * 1.2, 0.004), gm);
+      sl.position.set(L * 0.5 - k * 0.03, 0, s * P.w * 0.163); g.add(sl);
+    }
+  }
+  if (P.barbels) {
     const bm = new THREE.LineBasicMaterial({ color: 0x1a1a1a });
-    for (const s of [-1, 1]) for (const k of [0, 1]) {
-      const pts = [new THREE.Vector3(0.28, -0.02 - k * 0.02, s * 0.05), new THREE.Vector3(0.45 - k * 0.06, -0.06 - k * 0.03, s * (0.1 + k * 0.06))];
+    for (const s of [-1, 1]) for (let k = 0; k < P.barbels; k++) {
+      const pts = [new THREE.Vector3(L * 0.82, -dk * 0.2 - k * 0.015, s * 0.04),
+        new THREE.Vector3(L * (0.9 + k * 0.08), -dk * (0.9 + k * 0.25), s * (0.05 + k * 0.05))];
       g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), bm));
     }
   }
-  g.userData.tail = tail;
+  if (P.horn) {
+    const h = new THREE.Mesh(new THREE.SphereGeometry(0.016, 6, 5), mat);
+    h.position.set(L * 0.62, dk * 1.15, 0); h.scale.set(1.4, 0.8, 0.8); g.add(h);
+  }
+  if (P.veil) {   // 盲鱼：鳍拉长成纱，身体半透明
+    mat.transparent = true; mat.opacity = 0.82;
+    finMat.opacity = 0.5;
+    tailG.children.forEach(t => t.scale.setScalar(1.5));
+  }
+  g.userData.tail = tailG;
   g.userData.mat = mat;
   return g;
 }
@@ -107,6 +204,11 @@ export class Fish {
     if (this.sp === 'cavefish' && ctx?.lightPos) {
       const d = this.obj.position.distanceTo(ctx.lightPos);
       if (d < 4) { this.target.copy(this.obj.position).sub(ctx.lightPos).setLength(this.range).add(this.center); this.flee = 1; }
+    }
+    // 个人空间：不管什么鱼，都不该贴到潜水员脸前（灯会把贴脸的鱼打成一团光斑）
+    if (ctx?.lightPos) {
+      const d2 = this.obj.position.distanceToSquared(ctx.lightPos);
+      if (d2 < 3.24) { _v2.subVectors(this.obj.position, ctx.lightPos).setLength(2.6); this.target.copy(this.obj.position).add(_v2); this.flee = 1; }
     }
     const dir = _v.subVectors(this.target, this.obj.position);
     const dist = dir.length();
@@ -192,7 +294,20 @@ function makeCrawler(kind) {
       }
     }
   } else {
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), M(0xe8e4d8)); body.scale.set(2.2, 0.6, 1); g.add(body);
+    // 等足虫：一节节背甲拼出的潮虫，七对细腿，尾端两根尾须
+    const mat = M(0xe8e4d8, 0.7);
+    for (let i = 0; i < 8; i++) {
+      const seg = new THREE.Mesh(new THREE.SphereGeometry(0.042 - Math.abs(i - 3.5) * 0.005, 8, 6), mat);
+      seg.scale.set(0.5, 0.55, 1); seg.position.x = (i - 3.5) * 0.036; g.add(seg);
+      if (i > 0 && i < 7) for (const s of [-1, 1]) {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.002, 0.045, 3), mat);
+        leg.position.set((i - 3.5) * 0.036, -0.022, s * 0.04); leg.rotation.x = s * 1.15; g.add(leg);
+      }
+    }
+    for (const s of [-1, 1]) {
+      const u = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.001, 0.055, 3), mat);
+      u.position.set(-0.19, 0, s * 0.025); u.rotation.z = Math.PI / 2 - 0.5; u.rotation.y = s * 0.4; g.add(u);
+    }
   }
   return g;
 }

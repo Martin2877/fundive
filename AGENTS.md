@@ -18,11 +18,20 @@ npm install        # 装依赖（workspaces: client/server/shared）
 npm run dev        # 开发：vite(5173) + 服务器(8790) 一起起
 npm run build      # 构建 client -> client/dist
 npm start          # 生产：8790 端口托管 dist + /ws 联机
+# 静态部署（Cloudflare Pages 等）：build=npm run build, output=client/dist, Node20
+#   联机 ws 端点 = 构建期 VITE_WS_URL，未配置走同源 /ws（静态托管时组队自动回落单机）
 npm run smoke      # 冒烟测试：宇宙生成确定性 + ws 协议全流程
 npm test           # worldtest（世界生成/碰撞与可见洞壁一致性）+ smoke + i18n 覆盖检查
 npm run i18n       # 列出缺英文翻译的中文字符串
 npm run shots      # 画面验收：全地图截图 + 亮度/过曝/帧率/报错门禁（需先 npm run dev，本机 Chrome）
 node scripts/worldtest.mjs  # 世界生成/碰撞场测试（node + DOM stub）
+node scripts/oceantest.mjs  # 海潜世界：海底/沉船碰撞、锚绳、节点
+node scripts/icetest.mjs    # 冰潜世界：冰盖挡顶、冰洞出口、安全绳、生物布点
+node scripts/surfprobe.mjs  # 出水流程探针（playwright，需 dev）：出口→水面世界→接应
+node scripts/flowprobe.mjs  # 海流探针 --map=N：激流/暗流/洗衣机区漂移 + G 挂钩
+node scripts/landprobe.mjs  # 气室干岸探针：上岸走动/回水
+node scripts/exitprobe.mjs  # 非常规出口探针：第二洞口/攀爬/呼救三结局
+node scripts/compassprobe.mjs # 罗盘课节探针：bearing 检查 + HUD 罗盘条
 ```
 
 ## 结构
@@ -31,7 +40,8 @@ node scripts/worldtest.mjs  # 世界生成/碰撞场测试（node + DOM stub）
   平行宇宙生成(universe.js)、联机协议(protocol.js)、物种/结局图鉴数据、
   教学课程(courses.js，OW/AOW/军队课节与考核步骤)
 - `client/` — Vite + Three.js：
-  - `src/engine/` 洞穴网格放样+碰撞场(cave.js)、水下氛围(water.js)、
+  - `src/engine/` 洞穴网格放样+碰撞场(cave.js)、海潜开阔水(ocean.js)、
+    冰潜冰盖湖(ice.js)、海洋生物(marine.js)、水下氛围(water.js)、
     泥沙系统(silt.js)、生物生成(creatures.js)、潜水员模型(diver.js)、噪声(noise.js)
   - `src/game/` 会话总控(session.js)、玩家物理+生理(player.js)、AI潜伴(buddy.js)、
     目标系统(objective.js)、拍照(photo.js)、联机(netplay.js)、输入(input.js)、
@@ -59,6 +69,10 @@ maps.js 中 `kind:'ocean'` 的地图（reef/wreck/bluewall）走 `engine/ocean.j
 接口与 `buildCave` 同形（nav.clamp/closest、nodes、mainSpine、linePts…），由 `engine/world.js` 分发；生物走 `engine/marine.js`。
 route 节点 `p:[x, 离海底高度, z]`（`abs:true` 绝对 y，`surface:true` 水面，`ref:'wreck'` 相对沉船中心）。
 出水点 = 潜水船周围 10m 水面；上升建议抓锚绳(G)。`scripts/oceantest.mjs` 校验海底/沉船碰撞与节点。
+- **SMB 浮标**：C 键（3m 以下才放得出）。浮标出水后，离船 >10m 上浮 4.5s 判 `boat_pickup`（好结局）；
+  无浮标漂在远处水面 45s 判 `adrift`。水面空瓶不判气尽改漂浮（player.noGas）。
+- 沉船：舰桥是空心海图室（前壁门洞进），货舱有集装箱/卡车/油桶内景（碰撞同墙）；节点 8 = 海图室。
+- 教学课 `ocn` 用 reef/wreck 图；check `pickup` 由 TrainingSession._finish 拦截 boat_pickup 驱动。
 
 ## 剧情与支线
 
@@ -100,8 +114,8 @@ e2e：`node scripts/e2e_train.mjs --url=http://localhost:5173`（需先 npm run 
 
 WASD 游动 · 鼠标视角(点击画面锁定) · 空格快踢(搅沙) · K 蛙踢 · F 拍照 ·
 E 互动 · G 抓引绳 · Q 备用二级头 · L 主灯 · M 面镜 · H 压上沿 · N 鼻吐气 ·
-X 捏鼻 · R 二级头 · B/V BCD充放气 · O CCR · I/U 手动吸呼气 · 1-5 手势 ·
-Tab 键位表 · Esc 暂停。移动端：左摇杆 + 右侧按钮，右半屏拖动视角。
+X 捏鼻 · R 二级头 · B/V BCD充放气 · O CCR · C 浮标(海潜SMB) · I/U 手动吸呼气 ·
+1-5 手势 · Tab 键位表 · Esc 暂停。移动端：左摇杆 + 右侧按钮，右半屏拖动视角。
 
 ## 其他机制
 

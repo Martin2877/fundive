@@ -134,6 +134,110 @@ export function makeUniverse(mapId, seed) {
   };
 }
 
+// ———— 程序化支洞：宇宙种子决定，给每张洞潜图补支线岔路 ————
+// 与 map.branches 同构的 def：{from,pts,r,endR?,name,pocket?,bottomless?,deadEnd?,kind,feats,open,to?}
+// kind 扩展：'loop' 环道（to=接回的路线下标，末端不封岩盖）、'room' 尽头大厅、'side' 普通侧岔
+// 独立随机流 '::sides'，不扰动既有生成。
+export function genSideBranches(map, seed) {
+  const rng = universeRng(map.id, `${seed}::sides`);
+  const R = map.route, n = R.length;
+  if (n < 4 || map.kind === 'ocean' || map.kind === 'ice' || map.hidden) return [];
+  const used = new Set((map.branches || []).map(b => b.from));
+  const out = [];
+  const want = Math.min(4, Math.max(2, Math.round(n / 3)));
+  let tries = 0;
+  while (out.length < want && tries++ < 60) {
+    const from = intRange(rng, 1, n - 2);
+    if (used.has(from)) continue;
+    const node = R[from];
+    const a = R[Math.max(0, from - 1)].p, b = R[Math.min(n - 1, from + 1)].p;
+    const dx = b[0] - a[0], dz = b[2] - a[2], dl = Math.hypot(dx, dz) || 1;
+    const side = chance(rng, 0.5) ? 1 : -1;
+    const px = -dz / dl * side, pz = dx / dl * side;   // 主线的水平垂直方向
+    const roll = rng();
+    let def = null;
+    if (roll < 0.2) {
+      // 环道：从 from 岔出，绕一圈接回后面的节点——不是死路
+      const to = Math.min(n - 1, from + intRange(rng, 2, 3));
+      if (used.has(to)) continue;
+      const d1 = range(rng, 8, 15), d2 = range(rng, 8, 15);
+      def = {
+        from, to, name: pick(rng, ['环道', '回廊岔', '绕洞']), kind: 'loop',
+        pts: [
+          [node.p[0] + px * d1, node.p[1] + range(rng, -3, 3), node.p[2] + pz * d1],
+          [R[to].p[0] + px * d2, R[to].p[1] + range(rng, -3, 3), R[to].p[2] + pz * d2],
+        ],
+        r: range(rng, 2.0, 3.0),
+      };
+      used.add(to);
+    } else if (roll < 0.42) {
+      // 侧厅：窄廊尽头撑出大厅——同一张图里也有大小不同的空间
+      const d1 = range(rng, 7, 13), d2 = range(rng, 12, 20), bend = chance(rng, 0.5) ? 1 : -0.4;
+      const p1 = [node.p[0] + px * d1, node.p[1] + range(rng, -2, 2), node.p[2] + pz * d1];
+      const p2 = [p1[0] + (px * 0.5 + dx / dl * bend) * (d2 - d1) * 0.7, p1[1] + range(rng, -3, 3), p1[2] + (pz * 0.5 + dz / dl * bend) * (d2 - d1) * 0.7];
+      const silty = chance(rng, 0.45);
+      def = { from, pts: [p1, p2], r: range(rng, 1.6, 2.4), endR: range(rng, 4.5, 7.5), kind: 'room',
+        name: silty ? pick(rng, ['淤沙厅', '泥沙厅', '粉砂厅']) : pick(rng, ['侧厅', '圆石厅', '回声厅']),
+        feats: silty ? ['stalactite', 'silt'] : ['stalactite'] };
+    } else if (roll < 0.6) {
+      // 上行井：竖直岔上去——顶端一半概率是气室
+      const d = range(rng, 4, 8), pocket = chance(rng, 0.55);
+      const p1 = [node.p[0] + px * d, node.p[1] + range(rng, 4, 7), node.p[2] + pz * d];
+      const p2 = [p1[0] + px * range(rng, 2, 5), Math.min(-3.5, node.p[1] + range(rng, 9, 16)), p1[2] + pz * range(rng, 2, 5)];
+      def = { from, pts: [p1, p2], r: range(rng, 1.5, 2.4), pocket, deadEnd: !pocket, name: pick(rng, ['上升井', '高窗岔', '天窗井']), kind: pocket ? 'pocket' : 'dead' };
+      if (pocket) def.endR = range(rng, 3.5, 5.5);
+    } else if (roll < 0.78) {
+      // 下行竖井：垂直下探，多半探不到底
+      const d = range(rng, 4, 9), bottomless = chance(rng, 0.6);
+      const p1 = [node.p[0] + px * d, node.p[1] - range(rng, 6, 12), node.p[2] + pz * d];
+      const p2 = [p1[0] + range(rng, -3, 3), p1[1] - (bottomless ? range(rng, 25, 55) : range(rng, 4, 8)), p1[2] + range(rng, -3, 3)];
+      def = { from, pts: [p1, p2], r: range(rng, 1.4, 2.4), bottomless, deadEnd: !bottomless, name: pick(rng, ['下行竖井', '深井缝', '无底井']), kind: bottomless ? 'bottomless' : 'dead', feats: ['silt'] };
+    } else if (roll < 0.9) {
+      // 窄缝：勉强过人的裂隙——快踢会卡进去
+      const d1 = range(rng, 6, 10), d2 = range(rng, 12, 18);
+      const p1 = [node.p[0] + px * d1, node.p[1] + range(rng, -1.5, 1.5), node.p[2] + pz * d1];
+      const p2 = [p1[0] + px * (d2 - d1) * 0.7 + range(rng, -3, 3), p1[1] + range(rng, -2, 2), p1[2] + pz * (d2 - d1) * 0.7 + range(rng, -3, 3)];
+      def = { from, pts: [p1, p2], r: range(rng, 0.85, 1.05), deadEnd: true, name: pick(rng, ['窄缝', '裂隙']), kind: 'dead', feats: ['crack', 'silt'] };
+    } else {
+      // 普通侧岔
+      const d1 = range(rng, 8, 14), d2 = range(rng, 10, 18);
+      const p1 = [node.p[0] + px * d1, node.p[1] + range(rng, -2, 2), node.p[2] + pz * d1];
+      const p2 = [p1[0] + px * range(rng, 4, 9), p1[1] + range(rng, -3, 3), p1[2] + pz * range(rng, 4, 9)];
+      def = { from, pts: [p1, p2], r: range(rng, 1.7, 2.6), deadEnd: chance(rng, 0.5), name: pick(rng, ['侧岔', '风化廊', '暗廊']), kind: 'side' };
+    }
+    def.open = chance(rng, 0.85);   // 平行宇宙里有的通、有的塌
+    out.push(def); used.add(from);
+  }
+
+  // —— 非常规出口：每张图保底一条（中后段岔出去），三种玩法由种子定 ——
+  // mouth=第二洞口（水上天光，上浮即出）  climb=高处旱厅（卸装备沿干缝攀出）  far=远端旱厅（离岸太远，呼救接应）
+  if (n >= 5) {
+    let from = intRange(rng, Math.floor(n / 2), n - 2), guard = 0;
+    while (used.has(from) && guard++ < 8) from = intRange(rng, Math.floor(n / 2), n - 2);
+    const node = R[from];
+    const a = R[Math.max(0, from - 1)].p, b = R[Math.min(n - 1, from + 1)].p;
+    const dx = b[0] - a[0], dz = b[2] - a[2], dl = Math.hypot(dx, dz) || 1;
+    const side = chance(rng, 0.5) ? 1 : -1, px = -dz / dl * side, pz = dx / dl * side;
+    const kind = pick(rng, ['mouth', 'climb', 'far']);
+    const d1 = range(rng, 9, 16), d2 = range(rng, 14, 24);
+    const p1 = [node.p[0] + px * d1, node.p[1] + range(rng, 2, 6), node.p[2] + pz * d1];
+    let def;
+    if (kind === 'mouth') {
+      // 一路上行到近水面——尽头是另一口天窗（深图就是一根通天烟囱）
+      const p2 = [p1[0] + px * range(rng, 3, 7), range(rng, -3.4, -2.2), p1[2] + pz * range(rng, 3, 7)];
+      def = { from, pts: [p1, p2], r: range(rng, 1.8, 2.6), endR: range(rng, 3.6, 5), altExit: 'mouth', name: pick(rng, ['侧天窗', '风口缝', '另一口']) };
+    } else {
+      // 上行进干厅：爬到近地表的洞厅，水面只在厅底一角，大部分是能走的旱地
+      const p2 = [p1[0] + px * range(rng, 4, 9), range(rng, -4.6, -3.0), p1[2] + pz * range(rng, 4, 9)];
+      def = { from, pts: [p1, p2], r: range(rng, 1.7, 2.4), endR: range(rng, 5, 7.5), altExit: kind,
+        name: kind === 'climb' ? pick(rng, ['旱厅', '风蚀厅', '高台']) : pick(rng, ['远厅', '尽头厅', '暗堂']) };
+    }
+    def.open = true;   // 保底出口不塌
+    out.push(def); used.add(from);
+  }
+  return out;
+}
+
 export function objectiveText(u) {
   const o = u.objective;
   switch (o.type) {

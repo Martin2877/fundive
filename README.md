@@ -38,6 +38,33 @@ npm run build      # 构建 client -> client/dist
 npm start          # 8790 端口托管 dist + /ws 联机通道（PORT 环境变量可改）
 ```
 
+### 部署到 Cloudflare Pages（纯静态，联机走 Supabase）
+
+游戏全部玩法（单机、教学、图鉴、平行宇宙）都在浏览器端运行，可以整站托管到 Pages：
+
+| 项目设置 | 值 |
+|---|---|
+| Build command | `npm run build` |
+| Build output | `client/dist` |
+| Node version | `20`（仓库里有 `.nvmrc`） |
+
+根目录 `wrangler.toml` 已写好 `pages_build_output_dir`，也可以直接 `npx wrangler pages deploy client/dist`。
+
+**联机（Supabase Realtime）**：房间大厅与位姿转发走 Supabase Realtime 频道（presence + broadcast），不需要自建服务端、不需要建表：
+
+1. [supabase.com](https://supabase.com) 建一个免费项目（Realtime 默认开启）；
+2. Project Settings → API 拿到 `Project URL` 和 `anon public key`；
+3. 在 Pages 构建环境变量（或本地 `client/.env`，见 `client/.env.example`）里加：
+   ```
+   VITE_SUPABASE_URL=https://你的项目.supabase.co
+   VITE_SUPABASE_ANON_KEY=你的anon-key
+   ```
+4. 重新构建部署。「组队潜水」即可开房/进房（4 位房间码，最多 4 人同潜）。
+
+anon key 本来就是设计给前端用的公开 key；本项目不读写数据库，只用 Realtime 频道。
+
+> **备选**：也可以把 `server/` 部署到任意支持 WebSocket 的 Node 托管（Railway / Fly / 自有 VPS），构建时设 `VITE_WS_URL=wss://你的域名/ws`。两个都没配时，「组队潜水」会提示并回落单人。
+
 ## 怎么玩
 
 ### 一局的标准流程
@@ -167,6 +194,8 @@ Maps are adapted from real sites and events: Cenote Dos Ojos, the 2018 Tham Luan
 npm install && npm run dev   # Node ≥ 20 → http://localhost:5173
 npm run build && npm start   # production, serves on :8790 with /ws multiplayer
 ```
+
+Deploy to Cloudflare Pages (static): build command `npm run build`, output dir `client/dist`, Node 20. For multiplayer on a static host, create a free Supabase project and set `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` in the Pages build environment (Realtime channels only — no tables or functions needed). Alternatively host `server/` on any WebSocket-capable Node host and set `VITE_WS_URL=wss://your-host/ws`.
 
 Controls: WASD swim, mouse look, Space kick, K frog-kick, F camera, E interact, G hold guideline, L light, B/V BCD inflate/vent, Esc pause. Mobile: left stick + on-screen buttons. Training mode walks you through OW → AOW → CCR combat-diver courses.
 

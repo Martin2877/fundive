@@ -13,11 +13,12 @@ const UnderwaterShader = {
   fragmentShader: /* glsl */`
     uniform sampler2D tDiffuse; uniform float uTime, uAspect, uNarc, uPanic, uMask, uDark;
     varying vec2 vUv;
-    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + uTime) * 43758.5453); }
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + mod(uTime, 628.318)) * 43758.5453); }
     void main() {
+      float uT = mod(uTime, 628.318);   // 防 uTime 无限增大后 sin 大参数退化
       vec2 uv = vUv, c = uv - 0.5;
       float w = uNarc * 0.006 + uPanic * 0.002;
-      uv += w * vec2(sin(uv.y * 22.0 + uTime * 2.1), cos(uv.x * 19.0 + uTime * 1.7));
+      uv += w * vec2(sin(uv.y * 22.0 + uT * 2.1), cos(uv.x * 19.0 + uT * 1.7));
       float r2 = dot(c * vec2(uAspect * 0.62, 1.0), c * vec2(uAspect * 0.62, 1.0));
       vec2 ca = c * (0.0016 + uNarc * 0.004) * (0.4 + r2 * 6.0);
       vec3 col = vec3(texture2D(tDiffuse, uv + ca).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - ca).b);

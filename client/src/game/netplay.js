@@ -19,8 +19,11 @@ export class Net {
 
   connect() {
     if (this.ws) return Promise.resolve(this);
+    // 联机端点：VITE_WS_URL（构建期注入，给静态托管指到自托管的 ws 服务）；
+    // 未配置时走同源 /ws —— `npm start` / vite dev 代理都能接住
+    const env = import.meta.env?.VITE_WS_URL?.trim();
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${location.host}/ws`;
+    const url = env || `${proto}://${location.host}/ws`;
     return new Promise((res, rej) => {
       const ws = new WebSocket(url);
       this.ws = ws;

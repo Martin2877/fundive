@@ -51,6 +51,10 @@ export const SPECIES = {
   seafan:    { name: '海扇', en: 'Gorgonian', cat: 'invert', rarity: 3, desc: '垂直于水流方向生长的扇形软珊瑚，捕捉漂过的浮游生物。', hint: '崖壁与礁沿，迎着水流。', tip: '像扇子一样的网状分枝，总是朝着水流的方向张开。' },
   sponge:    { name: '桶状海绵', en: 'Xestospongia', cat: 'invert', rarity: 2, desc: '能活上千年的滤食动物，一个桶就能每天过滤上万升海水。', hint: '礁坡上，圆桶形，口朝上。', tip: '紫褐色的圆桶，顶口敞开；表面粗糙多孔。' },
   shipbell:  { name: '沉船铜钟', en: "ship's bell", cat: 'artifact', rarity: 4, desc: '刻着船名的铜钟，是沉船身份的证据，也是潜水员敬重的"墓碑"。', hint: '沉船驾驶台或舱口附近。', tip: '绿色铜锈覆盖的钟形物，顶端有吊环；只拍，不拿。' },
+  // —— 冰潜物种 ——
+  seaangel:  { name: '冰海天使', en: 'Clione limacina', cat: 'invert', rarity: 5, desc: '裸海蝶，北方冰海里的"天使"：通体透明的小海蛞蝓，扇着两翼悬浮在蓝水里。', hint: '冰盖下的中层水，一拍一拍地飞。', tip: '拇指大的透明身体，中间一截橙红色内脏；两翼快速扇动，悬停不沉。' },
+  whitefish: { name: '冰下白鲑', en: 'Coregonus', cat: 'fish', rarity: 2, desc: '寒带湖泊的银色鱼群，冬天贴着冰盖下游弋，找剩下的浮游生物。', hint: '冰下开阔水，成群缓游。', tip: '银白色流线型身体，成群、匀速、不慌不忙。' },
+  icealgae:  { name: '冰柱藻', en: 'ice algae', cat: 'plant', rarity: 3, desc: '挂在冰盖下表面的褐色藻丝，春天靠冰缝里漏下的光疯长。', hint: '贴着冰盖下表面，一绺一绺垂下来。', tip: '暗绿色细丝成束垂在冰底，远看像倒挂的胡须。' },
 };
 
 
@@ -69,7 +73,13 @@ export const ENDINGS = {
   tox:         { name: '氧中毒', kind: 'bad', desc: '高压氧不是补药，是剂量够了的毒。', hint: '深度表上每个数字都有代价。' },
   freeflow:    { name: '自由流耗尽', kind: 'bad', desc: '调节器开始自由流的时候，气瓶倒得比水快。', hint: '听到嘶嘶声就换备用二级头。' },
   rescued:     { name: '获救', kind: 'good', desc: '极为少见的获救案例。', hint: '被困时找到气室，节省体力，等待救援。' },
+  alt_exit:    { name: '另辟蹊径', kind: 'good', desc: '你没走来时的路，但走出了这片山。', hint: '洞里每口天窗都是一条活路——前提是找得到。' },
+  climbed_out: { name: '攀岩脱险', kind: 'good', desc: '装备留在水边，人从岩缝里钻了出去。', hint: '有些出口是给人走的，不是给装备走的。' },
+  rescue_call: { name: '呼救接应', kind: 'good', desc: '信标挂了出去，人从山的另一头被接走。', hint: '离岸太远的旱厅别硬撑——发信标比硬扛体面。' },
   missing:     { name: '失踪', kind: 'bad', desc: '搜救队找到了你的引绳，仅此而已。', hint: '洞里没有下一把。' },
+  boat_pickup: { name: '浮标接应', kind: 'good', desc: '橙色的浮标在浪尖上一跳一跳——船看见了它，也就看见了你。', hint: '离船出水前，先放水面浮标。' },
+  adrift:      { name: '海上漂流', kind: 'bad', desc: '你浮在正确的海面上，只是船不知道。海流记得你最后的位置。', hint: '水下跟锚绳，水面放浮标——别让船找不到你。' },
+  hypothermia: { name: '失温', kind: 'bad', desc: '指尖先是疼，后来不疼了——那不是好转，是警报在一条条熄灭。', hint: '冰水里的每一分钟都在耗体温，盯住体寒，别把干衣当铁布衫。' },
 };
 
 // ———————— 地图 ————————
@@ -242,7 +252,7 @@ export const MAPS = [
     sub: '地下河',
     desc: '峡谷里的地下河、光柱大厅、幻觉。更深，更真，更难。',
     basedOn: '原型：虚构的蓝潭地下河——以峡谷暗河洞潜为蓝本，集光柱大厅、窄缝、强流与氮醉幻觉于一洞。',
-    difficulty: 3,
+    difficulty: 3, navReq: true,
     maxDepth: 38,
     water: { vis: 20, tint: 0x0a3550, glow: 0x3fc9ff },
     route: [
@@ -351,6 +361,7 @@ export const MAPS = [
 
 // ———————— 海潜地图 ————————
 // kind:'ocean'。route 节点 p:[x, up, z]：up = 离海底高度（abs:true 时为绝对 y；surface:true 为水面；ref:'wreck' 时 p 为相对沉船中心的 [dx, 离船底高度, dz]）。
+// inside:true 标记封闭空间内的节点（沉船舱室）——自由游动的生物不会布在里面（它们不做碰撞会穿墙），环境鱼群撒点也会跳过。
 // ocean：terrain 参数 {half 半边长, shallow/deep 浅深端水深, len 渐变距离, rough 起伏, wall 断崖, wreck 沉船, guide 是否沿路线牵绳}
 MAPS.push(
   {
@@ -386,11 +397,12 @@ MAPS.push(
       { p: [0, 0, 0], surface: true, r: 10, room: 'entry', sky: true, name: '潜水船' },
       { p: [0, 1.5, -14], r: 4, feats: ['line_start', 'sponge'], name: '锚点' },
       { p: [0, 2.5, -34], r: 5, feats: ['damselfish', 'parrotfish'], name: '残骸带' },
-      { ref: 'wreck', p: [-17, 5, 0], r: 4.5, feats: ['grouper', 'seafan'], name: '船首' },
+      { ref: 'wreck', p: [-17, 5, 0], r: 4.5, inside: true, feats: ['grouper', 'seafan'], name: '船首' },
       { ref: 'wreck', p: [-8, 11, 0], r: 5, room: 'hall', feats: ['coral', 'sponge'], name: '甲板' },
-      { ref: 'wreck', p: [-5, 3.5, 0], r: 4, feats: ['octopus'], name: '货舱' },
-      { ref: 'wreck', p: [6, 3.5, 0], r: 4, feats: ['shipbell', 'nudibranch'], name: '机舱' },
-      { ref: 'wreck', p: [15, 5, 0], r: 5, room: 'hall', feats: ['grouper', 'jellyfish'], name: '船尾' },
+      { ref: 'wreck', p: [-5, 3.5, 0], r: 4, inside: true, feats: ['octopus'], name: '货舱' },
+      { ref: 'wreck', p: [6, 3.5, 0], r: 4, inside: true, feats: ['shipbell', 'nudibranch'], name: '机舱' },
+      { ref: 'wreck', p: [15, 5, 0], r: 5, room: 'hall', inside: true, feats: ['grouper', 'jellyfish'], name: '船尾' },
+      { ref: 'wreck', p: [13.2, 8.7, 0], r: 3, inside: true, feats: ['shipbell'], name: '海图室' },
     ],
     branches: [],
     creatures: ['grouper', 'octopus', 'shipbell', 'damselfish', 'parrotfish', 'jellyfish', 'coral', 'seafan', 'sponge', 'nudibranch', 'turtle'],
@@ -418,6 +430,100 @@ MAPS.push(
     creatures: ['damselfish', 'parrotfish', 'ray', 'shark', 'turtle', 'jellyfish', 'seafan', 'sponge'],
     objectives: ['explore', 'photo'],
     hazards: { silt: 0.05, narcosis: 0.8, flow: 0.9, freeflow: 0.2 },
+  },
+  {
+    id: 'bluehole', kind: 'ocean', name: '大蓝洞', en: 'The Blue Hole', sub: '深井',
+    desc: '浅礁正中间的一口深蓝色竖井。它曾是冰期的溶洞，海平面涨上来把它灌满——四壁还挂着当年的钟乳石。',
+    basedOn: '原型：伯利兹大蓝洞与巴哈马蓝洞——冰期溶洞被海水灌满，是世界最有名的海洋深井潜点。',
+    difficulty: 4, maxDepth: 48, gas: 320,
+    water: { vis: 36, tint: 0x0a3a68, glow: 0x3a8fd8, dayLen: 30 },
+    ocean: { half: 120, shallow: 10, deep: 14, len: 160, rough: 0.9, pit: { x: 0, z: -90, r: 26, depth: 52 }, trail: true },
+    route: [
+      { p: [0, 0, 0], surface: true, r: 10, room: 'entry', sky: true, name: '潜水船' },
+      { p: [0, 1.5, -14], r: 4, feats: ['line_start', 'sponge'], name: '锚点' },
+      { p: [-6, 2, -40], r: 5, feats: ['damselfish', 'coral'], name: '礁坪' },
+      { p: [0, 2, -64], r: 5, feats: ['parrotfish', 'seafan'], name: '蓝洞沿' },
+      { abs: true, p: [8, -20, -80], r: 5, feats: ['sponge'], name: '井口' },
+      { abs: true, p: [10, -30, -90], r: 5, room: 'hall', feats: ['grouper'], name: '石幔壁' },
+      { abs: true, p: [4, -40, -96], r: 5, feats: ['ray', 'shark'], name: '深蓝井壁' },
+      { abs: true, p: [-2, -46, -92], r: 6, room: 'hall', feats: ['shark', 'jellyfish'], name: '洞底上缘' },
+    ],
+    branches: [],
+    creatures: ['damselfish', 'parrotfish', 'coral', 'seafan', 'sponge', 'grouper', 'ray', 'shark', 'jellyfish', 'octopus', 'nudibranch', 'turtle'],
+    objectives: ['explore', 'photo', 'salvage'],
+    hazards: { silt: 0.2, narcosis: 0.75, flow: 0.3 },
+  },
+  {
+    id: 'kelpforest', kind: 'ocean', name: '海藻森林', en: 'Kelp Forest', sub: '藻林',
+    desc: '巨藻从十几米深的海底一路长到天光里，像在水下穿过一片森林。鱼群在叶间躲藏，阳光被切成碎片。',
+    basedOn: '原型：加州海峡群岛与南非好望角的巨藻林潜点——世界最大的水下"森林"。',
+    difficulty: 2, maxDepth: 24, navReq: true,
+    water: { vis: 26, tint: 0x0d4a52, glow: 0x4ac8a8, dayLen: 24 },
+    ocean: { half: 110, shallow: 8, deep: 20, len: 140, rough: 1.4, kelp: true, trail: true, current: [0.6, 0, -0.8] },
+    route: [
+      { p: [0, 0, 0], surface: true, r: 10, room: 'entry', sky: true, name: '潜水船' },
+      { p: [0, 1.5, -14], r: 4, feats: ['line_start', 'sponge'], name: '锚点' },
+      { p: [-10, 2.5, -34], r: 5, feats: ['damselfish'], name: '藻林缘' },
+      { p: [-4, 3, -56], r: 5, room: 'hall', feats: ['octopus', 'nudibranch'], name: '林中空地' },
+      { p: [10, 3, -78], r: 5, feats: ['jellyfish', 'ray'], name: '藻墙' },
+      { p: [-2, 4, -100], r: 6, room: 'hall', feats: ['turtle', 'shark'], name: '深处林窗' },
+      { p: [-16, 4, -118], r: 5, feats: ['nudibranch', 'sponge'], name: '老藻带' },
+    ],
+    branches: [],
+    creatures: ['damselfish', 'jellyfish', 'octopus', 'nudibranch', 'ray', 'shark', 'turtle', 'sponge', 'anemone'],
+    objectives: ['explore', 'photo'],
+    hazards: { silt: 0.15, narcosis: 0.1, flow: 0.5 },
+  },
+);
+
+// ———————— 冰潜地图 ————————
+// kind:'ice'。头顶是封死的冰盖（唯一的出口是入水冰洞），脚下是缓坡湖底。
+// route 节点同海潜约定：p:[x, 离湖底高度, z]；surface:true 为冰洞口。
+// ice：{half 半边长, shallow/deep 浅深端水深, len 渐变距离, rough 起伏, ceilY 冰盖下缘, cold 失温秒数}
+MAPS.push(
+  {
+    id: 'icelake', kind: 'ice', name: '镜冰湖', en: 'Mirror Ice Lake', sub: '冰下',
+    desc: '湖面冻成了半米厚的毛玻璃。从锯开的冰洞下去，头顶是一整块冰，唯一的出口是你下来的那个洞。',
+    basedOn: '原型：俄罗斯白海与贝加尔湖的冰潜——冰盖之下安静的蓝色世界，和一条永远在走的失温倒计时。',
+    difficulty: 3, maxDepth: 22, gas: 300,
+    water: { vis: 32, tint: 0x10506a, glow: 0x6ac8dc, dayLen: 24, snow: 0.55 },
+    ice: { half: 110, shallow: 7, deep: 20, len: 140, rough: 0.9, ceilY: -0.55, cold: 420 },
+    route: [
+      { p: [0, 0, 0], surface: true, r: 3.5, room: 'entry', sky: true, name: '冰洞' },
+      { p: [0, 2.5, -10], r: 3.5, feats: ['line_start'], name: '安全绳下' },
+      { p: [-8, 3, -26], r: 4.5, feats: ['seaangel'], name: '蓝光走廊' },
+      { p: [-22, 5, -46], r: 5.5, room: 'hall', feats: ['whitefish', 'icealgae'], name: '白砂滩' },
+      { p: [-10, 8, -70], r: 6, feats: ['seaangel', 'icealgae'], name: '冰柱林' },
+      { p: [10, 10, -88], r: 6.5, room: 'hall', feats: ['whitefish'], name: '深槽' },
+      { p: [26, 7, -70], r: 5, feats: ['isopod'], name: '回坡' },
+      { p: [14, 4, -40], r: 4, feats: ['seaangel'], name: '归途' },
+    ],
+    branches: [],
+    creatures: ['whitefish', 'seaangel', 'icealgae', 'isopod', 'anemone', 'sponge'],
+    objectives: ['explore', 'photo', 'salvage'],
+    hazards: { silt: 0.4, narcosis: 0.15, flow: 0.1, cold: 1, freeflow: 0.5, lineBreak: 0.1 },
+  },
+  {
+    id: 'bergsea', kind: 'ice', name: '冰山之下', en: 'Under the Berg', sub: '冰山',
+    desc: '一座小冰山在湖面冻住了。它的根一直扎到水下十二米——从底下钻过去，头顶是另一整块冰。',
+    basedOn: '原型：格陵兰与南极的冰山冰潜——冰山九成在水下，冰底世界是另一片倒悬的荒野。',
+    difficulty: 4, maxDepth: 26, gas: 300,
+    water: { vis: 34, tint: 0x0b3244, glow: 0x4e96c4, dayLen: 22, snow: 0.55 },
+    ice: { half: 120, shallow: 12, deep: 30, len: 150, rough: 0.9, ceilY: -0.55, cold: 400, berg: { x: 0, z: -80, r: 24, depth: 11 } },
+    route: [
+      { p: [0, 0, 0], surface: true, r: 3.5, room: 'entry', sky: true, name: '冰洞' },
+      { p: [0, 2.5, -10], r: 3.5, feats: ['line_start'], name: '安全绳下' },
+      { p: [-18, 5, -40], r: 4.5, feats: ['icealgae'], name: '冰下坡' },
+      { p: [-24, 5, -68], r: 5, feats: ['whitefish'], name: '山影西缘' },
+      { abs: true, p: [-6, -15, -80], r: 6, room: 'hall', feats: ['seaangel', 'icealgae'], name: '冰山腹' },
+      { abs: true, p: [8, -15.5, -86], r: 5.5, feats: ['isopod'], name: '冰根下' },
+      { p: [24, 6, -70], r: 5, feats: ['whitefish', 'seaangel'], name: '山影东缘' },
+      { p: [10, 3.5, -36], r: 4, feats: ['icealgae'], name: '归途' },
+    ],
+    branches: [],
+    creatures: ['whitefish', 'seaangel', 'icealgae', 'isopod', 'anemone', 'sponge'],
+    objectives: ['explore', 'photo', 'salvage'],
+    hazards: { silt: 0.35, narcosis: 0.2, flow: 0.1, cold: 1, freeflow: 0.5, lineBreak: 0.1 },
   },
 );
 

@@ -24,7 +24,7 @@ export class Input {
       this.presses.push(e.code);
       const map = {
         KeyF: 'photo', KeyE: 'interact', KeyL: 'light', KeyQ: 'backup', Escape: 'pause', KeyP: 'pause', KeyG: 'line',
-        KeyM: 'mask', KeyR: 'reg', KeyO: 'ccr', Tab: 'keys',
+        KeyM: 'mask', KeyR: 'reg', KeyO: 'ccr', KeyC: 'smb', Tab: 'keys',
       };
       if (map[e.code]) this.actions.push(map[e.code]);
       if (/^Digit[1-5]$/.test(e.code)) this.actions.push('gesture:' + e.code.slice(5));

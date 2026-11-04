@@ -10,7 +10,7 @@ void main() {
   vT = (4.5 - position.y) / 9.0;
   vN = normalize(normalMatrix * normal);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vV = normalize(-mv.xyz);
+  vV = -mv.xyz / max(length(mv.xyz), 1e-4);
   gl_Position = projectionMatrix * mv;
 }`;
 const CONE_F = /* glsl */`

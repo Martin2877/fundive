@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { fbm3 } from './noise.js';
 import { universeRng, chance, range, intRange, pick } from '@fundive/shared/rng.js';
+import { genSideBranches } from '@fundive/shared/universe.js';
 import { genFade } from './texgen.js';
 import { makeCaveMaterial, CAUSTIC } from './materials.js';
 import { quality } from './quality.js';
@@ -146,19 +147,62 @@ export class NavField {
     out.clearance = out.r - bestD;
     return out;
   }
-  // 把 pos 夹回通道内；返回是否撞墙
-  clamp(pos, radius = 0.45) {
-    const c = this.closest(pos);
-    let lim = Math.max(0.4, c.r * 0.86 - radius);
-    if (c.smp && c.dist > 1e-4) {
-      _d.subVectors(pos, c.p).divideScalar(c.dist);
-      lim = Math.max(0.4, wallRadius(c.smp, _d.x, _d.y, _d.z) * 0.93 - radius + SHAPE.lift * Math.max(0, _d.y));
+  // 收集 pos 附近的候选段（与 closest 同一套格子环搜索）
+  _cands(pos) {
+    const cx = Math.floor(pos.x / this.cell), cy = Math.floor(pos.y / this.cell), cz = Math.floor(pos.z / this.cell);
+    for (let ring = 0; ring <= 2; ring++) {
+      const out = [];
+      for (let x = cx - ring; x <= cx + ring; x++)
+        for (let y = cy - ring; y <= cy + ring; y++)
+          for (let z = cz - ring; z <= cz + ring; z++) {
+            const list = this.grid.get(x + ',' + y + ',' + z);
+            if (list) for (const i of list) out.push(i);
+          }
+      if (out.length) return out;
     }
-    if (c.dist > lim) {
-      pos.sub(c.p).setLength(lim).add(c.p);
-      return true;
+    return [];
+  }
+  // pos 是否在"另一条"通道的可通行空间内（不含本路径）。
+  // 用于网格放样时挖掉岔洞幻影墙：A 管的壁面若落进 B 管内部，那片墙本来就不该存在。
+  insideOther(pos, pathTag) {
+    const cand = this._cands(pos);
+    const tmp = { p: new THREE.Vector3(), r: 0, smp: null };
+    for (const i of cand) {
+      const sg = this.segs[i];
+      if (sg.a.path === pathTag) continue;
+      this._segClosest(sg, pos, tmp);
+      const d = tmp.p.distanceTo(pos);
+      if (!tmp.smp || d < 1e-4) continue;
+      _d.subVectors(pos, tmp.p).divideScalar(d);
+      // 与 clamp 同一套壁函数：d < 通行半径 => 点在人家的通道里
+      const lim = wallRadius(tmp.smp, _d.x, _d.y, _d.z) * 0.9 + SHAPE.lift * Math.max(0, _d.y);
+      if (d < lim) return true;
     }
     return false;
+  }
+  // 把 pos 夹回通道内；返回是否撞墙。
+  // 通道是"管的并集"（支洞与主线交叠处墙是合并的）：pos 在任一段的洞壁之内即在洞里；
+  // 否则夹到"出去最少"的那段壁上——保证幂等，不会在岔口两段之间来回拉扯。
+  clamp(pos, radius = 0.45) {
+    const cand = this._cands(pos);
+    const tmp = { p: new THREE.Vector3(), r: 0, smp: null };
+    let best = null, bestScore = -Infinity;
+    for (const i of cand) {
+      const sg = this.segs[i];
+      this._segClosest(sg, pos, tmp);
+      const d = tmp.p.distanceTo(pos);
+      let lim = Math.max(0.4, tmp.r * 0.86 - radius);
+      if (tmp.smp && d > 1e-4) {
+        _d.subVectors(pos, tmp.p).divideScalar(d);
+        lim = Math.max(0.4, wallRadius(tmp.smp, _d.x, _d.y, _d.z) * 0.93 - radius + SHAPE.lift * Math.max(0, _d.y));
+      }
+      const score = lim - d;
+      if (score >= -1e-4) return false;
+      if (score > bestScore) { bestScore = score; best = { p: tmp.p.clone(), lim }; }
+    }
+    if (!best) return false;
+    pos.sub(best.p).setLength(best.lim).add(best.p);
+    return true;
   }
 }
 
@@ -168,28 +212,55 @@ export function buildCave(map, uni) {
   const acc = new GeomAcc();
   const group = new THREE.Group();
   const photoables = [];
-  const siltZones = [], flowZones = [], skylights = [], pockets = [], creatureAnchors = [];
+  const siltZones = [], flowZones = [], skylights = [], pockets = [], creatureAnchors = [], altExits = [];
+  const obstacles = [];   // 大件装饰的实体碰撞：{p,r} 球 | {a,b,r} 胶囊
   const QC = quality.cfg, RAD = QC.ring, STEP = QC.step, K = 1.4 / STEP;
 
-  // 气室：洞顶的一个空气穹顶。waterY 以上是空气；bad = 空气不能呼吸（由宇宙种子确定性决定）
-  const addDome = (c, R, key) => {
-    const bad = chance(universeRng(map.id, `${uni.seed}::dome${key}`), 0.2);
+  // 气室：洞顶的一个空气穹顶。waterY 以上是空气；bad = 空气不能呼吸（由宇宙种子确定性决定）。
+  // 大部分气室带一块可以爬上去的干岸（dry）：上岸走动、不耗气，走回水边再下去。
+  const addDome = (c, R, key, opts = {}) => {
+    const drng = universeRng(map.id, `${uni.seed}::dome${key}`);
+    const bad = opts.bad ?? chance(drng, 0.2);
     const waterY = c.y + R * 0.4;
-    pockets.push({ pos: new THREE.Vector3(c.x, waterY, c.z), r: R * 0.7, cx: c.x, cz: c.z, R: R * 0.8, waterY, bad });
+    const hasDry = opts.dry ?? (!bad && chance(drng, 0.7));
+    const pocket = { pos: new THREE.Vector3(c.x, waterY, c.z), r: R * 0.7, cx: c.x, cz: c.z, R: R * 0.8, waterY, bad };
+    const dryA = drng() * Math.PI * 2;
+    if (hasDry) pocket.dry = { x: c.x + Math.cos(dryA) * R * 0.42, z: c.z + Math.sin(dryA) * R * 0.42, y: waterY + 0.55, r: Math.max(1.6, R * 0.38) };
+    pockets.push(pocket);
     const m = new THREE.Mesh(new THREE.CircleGeometry(R * 0.8, 40),
       new THREE.MeshBasicMaterial({ color: bad ? 0xb8c46a : map.water.glow, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false }));
     m.rotation.x = -Math.PI / 2; m.position.set(c.x, waterY, c.z);
     group.add(m);
+    if (hasDry) {
+      // 干岸：斜出水面的一整块层岩台——顶面站人，坡脚伸进水里让人能爬上来
+      const d = pocket.dry, rr = d.r;
+      const geo = new THREE.CylinderGeometry(rr * 0.96, rr * 1.5, 2.6, 14, 3);
+      const pa = geo.attributes.position;
+      for (let i = 0; i < pa.count; i++) {
+        const n = fbm3(pa.getX(i) * 0.7 + d.x, pa.getY(i) * 0.7, pa.getZ(i) * 0.7 + d.z, 2);
+        pa.setX(i, pa.getX(i) * (1 + n * 0.16)); pa.setZ(i, pa.getZ(i) * (1 + n * 0.16));
+      }
+      geo.computeVertexNormals();
+      _q.setFromEuler(new THREE.Euler(-0.06 * Math.sin(dryA), 0, 0.06 * Math.cos(dryA)));
+      const tone = 0.86 + drng() * 0.2;
+      addGeo(deco, geo, _p.set(d.x, d.y - 1.3, d.z), _q, _s1, () => [tone, tone * 0.95, tone * 0.88]);
+      obstacles.push({ p: new THREE.Vector3(d.x, d.y - 1.9, d.z), r: rr * 0.9 });   // 水下部分仍是实体
+    }
   };
 
   // —— 收集路径 ——
   const paths = [{ tag: 'main', pts: map.route.map(n => new THREE.Vector3(...n.p)), rs: map.route.map(n => n.r), nodes: map.route }];
-  (map.branches || []).forEach((b, i) => {
-    const open = uni.branches?.[i]?.open !== false;
-    if (!open) return;
+  // 手绘支洞 + 程序化支洞（宇宙种子）：岔路/侧厅/竖井/窄缝/环道，让每张图有不同大小的空间与分岔
+  const branchDefs = [];
+  (map.branches || []).forEach((b, i) => { if (uni.branches?.[i]?.open !== false) branchDefs.push({ def: b, i }); });
+  genSideBranches(map, uni.seed).forEach((b, j) => { if (b.open !== false) branchDefs.push({ def: b, i: (map.branches || []).length + j, proc: true }); });
+  for (const { def: b, i, proc } of branchDefs) {
     const from = map.route[b.from];
-    paths.push({ tag: `b${i}`, pts: [new THREE.Vector3(...from.p), ...b.pts.map(p => new THREE.Vector3(...p))], rs: [from.r * 0.9, ...b.pts.map((_, k) => (k === b.pts.length - 1 && b.endR ? b.endR : b.r))], nodes: null, def: b, bi: i });
-  });
+    const tail = b.to != null ? [map.route[b.to].p] : [];   // 环道：末端接回主线节点
+    const pts = [from.p, ...b.pts, ...tail].map(p => new THREE.Vector3(...p));
+    const rs = [from.r * 0.9, ...b.pts.map((_, k) => (k === b.pts.length - 1 && b.endR ? b.endR : b.r)), ...tail.map(() => map.route[b.to].r * 0.9)];
+    paths.push({ tag: `b${i}`, pts, rs, nodes: null, def: b, bi: i, proc, noCap: b.to != null });
+  }
 
   const allSegs = [];
   const spines = {};
@@ -221,18 +292,23 @@ export function buildCave(map, uni) {
   }
 
   // —— 放样管状网格 ——
+  // 岔洞幻影墙剔除：顶点落在"另一条"通道的可通行空间内 => 该处壁面本不存在。
+  // （碰撞的通道是管的并集，网格这里也按并集挖洞，所见即所碰。）
+  const qnav = new NavField(allSegs);
+  const _w = new THREE.Vector3();
   for (const path of paths) {
     const samples = spines[path.tag];
-    const ringBase = [];
+    const ringBase = [], ringOpen = [];
     for (let i = 0; i < samples.length; i++) {
       const s = samples[i];
-      const ring = [];
+      const ring = [], open = [];
       for (let j = 0; j <= RAD; j++) {
         const a = (j / RAD) * Math.PI * 2;
         _n.copy(s.N).multiplyScalar(Math.cos(a)).addScaledVector(s.B, Math.sin(a));
         const rad = wallRadius(s, _n.x, _n.y, _n.z);
         _v2.copy(s.p).addScaledVector(_n, rad);
         _v2.y += SHAPE.lift;
+        open.push(qnav.insideOther(_w.copy(_v2), path.tag));
         // 顶点色（与三平面贴图相乘的色调）：地面暖沙，岩壁地层分带，天窗区藻绿，局部矿物染色
         const floorK = Math.min(1, Math.max(0, (-_n.y - 0.3) / 0.4));
         const sky = s.sky, algae = sky * Math.max(0, _n.y) * 0.5;
@@ -244,16 +320,20 @@ export function buildCave(map, uni) {
         ring.push(acc.vert(_v2, [cr * k, cg * k, cb * k], (j / RAD) * 3, s.s / 7));
       }
       ringBase.push(ring);
+      ringOpen.push(open);
     }
     for (let i = 0; i < ringBase.length - 1; i++) {
       for (let j = 0; j < RAD; j++) {
         const a = ringBase[i][j], b = ringBase[i][j + 1], c = ringBase[i + 1][j + 1], d = ringBase[i + 1][j];
-        acc.tri(a, d, b); acc.tri(b, d, c); // 内壁朝向
+        // 三个顶点都落在别家通道内的三角面 = 幻影墙，不生成
+        if (!(ringOpen[i][j] && ringOpen[i][j + 1] && ringOpen[i + 1][j])) acc.tri(a, d, b);
+        if (!(ringOpen[i][j + 1] && ringOpen[i + 1][j] && ringOpen[i + 1][j + 1])) acc.tri(b, d, c); // 内壁朝向
       }
     }
     // —— 末端封岩盖：开放环从内看是个透视黑洞，游进去又被碰撞拦回=诡异的"无头路"。
     // 用收缩中圈+端点拼一个鼓包岩盖封死，并把碰撞段延伸到盖尖，看见的就是能摸到的。——
-    {
+    // 环道（noCap）末端接回主线节点，不封盖——它是真正的分岔回路。
+    if (!path.noCap) {
       const sEnd = samples[samples.length - 1], outer = ringBase[ringBase.length - 1];
       const A = new THREE.Vector3(), Bv = new THREE.Vector3();
       let avgR = 0;
@@ -291,12 +371,13 @@ export function buildCave(map, uni) {
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
     uniforms: { uCol: { value: new THREE.Color(map.water.glow).lerp(new THREE.Color(1, 1, 1), 0.35) }, uK: { value: 0.1 }, uT: { value: 0 } },
     vertexShader: `varying vec3 vN; varying vec3 vV; varying float vY; varying float vA;
-      void main(){ vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position,1.0); vV = normalize(-mv.xyz);
+      void main(){ vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position,1.0); vV = -mv.xyz / max(length(mv.xyz), 1e-4);
         vY = uv.y; vA = atan(position.z, position.x); gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `uniform vec3 uCol; uniform float uK, uT; varying vec3 vN; varying vec3 vV; varying float vY; varying float vA;
       void main(){
         float edge = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.3);
-        float streak = 0.55 + 0.45 * sin(vA * 7.0 + uT * 0.35) * sin(vA * 13.0 - uT * 0.5 + vY * 3.0);
+        float uTw = mod(uT, 628.318);   // 防 uT 无限增大后 sin 大参数退化
+        float streak = 0.55 + 0.45 * sin(vA * 7.0 + uTw * 0.35) * sin(vA * 13.0 - uTw * 0.5 + vY * 3.0);
         float f = mix(0.25, 1.0, vY) * edge * streak;
         gl_FragColor = vec4(uCol * f * uK, 1.0);
       }`,
@@ -392,6 +473,7 @@ export function buildCave(map, uni) {
     _q.setFromEuler(new THREE.Euler(rng() * 3, rng() * 6, rng() * 3));
     const tone = range(rng, 0.8, 1.15);
     addGeo(deco, g, _p, _q, new THREE.Vector3(size, size, size), () => [tone, tone * 0.97, tone * 0.92]);
+    obstacles.push({ p: _p.clone(), r: size * 1.1 });   // 巨石挡路是真的挡
   };
   // 残骸带：翻倒的气瓶、旧装备 —— 打捞类地图的气氛组
   const addDebris = (s) => {
@@ -442,6 +524,7 @@ export function buildCave(map, uni) {
       const top = topAt(s), bot = botAt(s), len = top.distanceTo(bot);
       _q.setFromUnitVectors(UP, _d2.subVectors(top, bot).normalize());
       addGeo(deco, speleoGeo(len, 0.55, 'column'), bot, _q, _s1, calcite);
+      obstacles.push({ a: bot.clone(), b: top.clone(), r: 0.7 });   // 顶天石柱是能绕的柱子
       photoables.push({ sp: 'column', pos: P.clone(), r: node.r });
     }
     if (feats.includes('helictite')) {
@@ -509,19 +592,36 @@ export function buildCave(map, uni) {
 
   skylights.slice(0, 4).forEach((sk, i) => CAUSTIC.uSky.value[i].set(sk.pos.x, -0.35, sk.pos.z, sk.r));
   CAUSTIC.uSkyN.value = Math.min(4, skylights.length);
+  CAUSTIC.uCCol.value.setRGB(0.5, 0.9, 1.0);   // 恢复默认焦散色（ice.js 会调暗）
 
   // —— 支洞：信息（入口/尽头/类型）+ 支洞气室 ——
   const branchInfo = [];
-  (map.branches || []).forEach((b, i) => {
+  for (const { def: b, i } of branchDefs) {
     const sp = spines[`b${i}`];
-    if (!sp) return;
+    if (!sp) continue;
     const e = sp.find(s => s.s - sp[0].s >= 8) || sp[sp.length - 1], end = sp[sp.length - 1];
-    const kind = b.bottomless ? 'bottomless' : b.pocket ? 'pocket' : b.deadEnd ? 'dead' : 'side';
+    const kind = b.altExit || b.kind || (b.bottomless ? 'bottomless' : b.pocket ? 'pocket' : b.deadEnd ? 'dead' : 'side');
     branchInfo.push({ i, kind, name: b.name, entry: e.p.clone(), end: end.p.clone() });
     if (b.pocket) addDome(end.p, b.endR || b.r * 1.6, `b${i}`);
-  });
+    // 非常规出口支洞：尽头是另一条活路
+    if (b.altExit) {
+      const R = b.endR || b.r * 1.8;
+      if (b.altExit === 'mouth') {
+        addDome(end.p, R, `x${i}`);   // 洞顶气室+水面——头出水面就触发另一个洞口
+        skylights.push({ pos: end.p.clone(), r: R * 0.9, top: end.p.y + 9, caust: null });
+        altExits.push({ pos: end.p.clone(), kind: 'mouth', r: R * 0.9 });
+      } else {
+        addDome(end.p, R, `x${i}`, { dry: true, bad: false });   // 旱厅：水面只在厅底一角
+        const pk = pockets[pockets.length - 1];
+        altExits.push({ pos: pk.dry ? new THREE.Vector3(pk.dry.x, pk.dry.y, pk.dry.z) : end.p.clone(), kind: b.altExit, r: (pk.dry?.r || 2) + 0.7, dome: pk });
+      }
+    }
+    // 死路/窄缝尽头容易淤积——进去想出来要先穿过自己搅起的沙
+    if ((b.feats || []).includes('silt') && !b.bottomless) siltZones.push({ pos: end.p.clone(), r: Math.max(2, (b.endR || b.r) * 1.2) });
+  }
 
   const nav = new NavField(allSegs);
+  nav.obstacles = obstacles;
   const entry = { pos: new THREE.Vector3(...map.route[0].p), r: map.route[0].r };
   const last = map.route[map.route.length - 1];
   const objNode = map.route[uni.objective.at] || last;
@@ -542,7 +642,7 @@ export function buildCave(map, uni) {
     group, nav, wallPoint, mainSpine: mainS,
     entryPos: entry.pos, entryR: entry.r,
     nodes: map.route.map((n, i) => ({ i, pos: new THREE.Vector3(...n.p), r: n.r, name: n.name, feats: n.feats || [], room: n.room, sky: n.sky, sample: nodeToSample.get(i) })),
-    skylights, surfaces, shaftMat, pockets, branchInfo, siltZones, flowZones, photoables,
+    skylights, surfaces, shaftMat, pockets, branchInfo, siltZones, flowZones, photoables, altExits,
     creatureAnchors,
     linePts, lineGap: gapRange ? mainS[gapRange[0]]?.p.clone() : null,
     objectiveSpot: { pos: new THREE.Vector3(...objNode.p), r: objNode.r, name: objNode.name },

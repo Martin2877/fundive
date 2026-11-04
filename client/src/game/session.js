@@ -17,6 +17,7 @@ import { MSG } from '@fundive/shared/protocol.js';
 import { CAUSTIC } from '../engine/materials.js';
 import { DiverLamp } from '../engine/lamp.js';
 import { makeComposer } from '../engine/postfx.js';
+import { buildSurface } from '../engine/surface.js';
 import { BodyAvatar } from '../ui/avatar.js';
 import { DiveHand } from '../engine/hand.js';
 import { store } from './storage.js';
@@ -90,7 +91,11 @@ export class DiveSession {
       }
     });
     this.critters = populateWorld(scene, this.cave, map, uni);
-    this.player = new Player(this.cave.entryPos.clone().add(_v.set(0, -0.4, -1)));
+    this._lineWord = map.kind === 'ocean' ? '锚绳' : map.kind === 'ice' ? '安全绳' : '引绳';
+    this._ocean = map.kind === 'ocean';
+    this._ice = map.kind === 'ice';
+    this.cold = 0;
+    this.player = new Player((this.cave.spawnPos || this.cave.entryPos.clone().add(_v.set(0, -0.4, -1))).clone());
     if (map.gas) { this.player.gas = this.player.gasMax = map.gas; }  // 深图背双瓶
     // 朝向洞内：看向前方约 10m 处的脊线（竖井地图会自然低头看向深渊）
     const sp = this.cave.mainSpine, ahead = sp[Math.min(sp.length - 1, Math.round(10 / (sp[1].s - sp[0].s || 1)))].p;
@@ -159,13 +164,14 @@ export class DiveSession {
     switch (m.k) {
       case 'photo': T.say(tr('{name} 拍到了{what}', { name, what: (m.subject ? `「${spName(m.subject)}」` : tr('一张')) + (m.stars ? ' ' + '★'.repeat(m.stars) : '') })); break;
       case 'gesture': {
-        const g = { ok: '比了个 OK', up: '指了指上面：撤', help: '猛挥手：过来帮忙', line: '指了指引绳', light: '闪了闪灯' }[m.g] || '打了个手势';
+        const g = { ok: '比了个 OK', up: '指了指上面：撤', help: '猛挥手：过来帮忙', line: tr('指了指{lw}', { lw: this._lineWord }), light: '闪了闪灯' }[m.g] || '打了个手势';
         this.peers.map.get(m.id)?.obj.userData.gesture?.(m.g, 2.2);
         T.say(tr('{name} {g}', { name, g: tr(g) })); break;
       }
       case 'died': T.say(tr('{name} 的灯灭了。{e}', { name, e: endingName(m.ending) })); break;
       case 'pickup': T.say(tr('{name} 捞起了一样东西', { name })); break;
       case 'rescue_on': T.say(tr('{name} 开始拖带被困者', { name })); break;
+      case 'smb': T.say(tr('{name} 放出了水面浮标', { name })); break;
       case 'objective': T.say(tr('{name} 完成了目标', { name })); break;
       case 'silt': if (m.p) this.silt.burst(new THREE.Vector3(...m.p), 0.8); break;
       case 'share_air': if (m.to === this.o.net.id) { this.player.gas += 20; T.say(tr('{name} 把备用二级头塞给了你', { name })); } break;
@@ -182,10 +188,20 @@ export class DiveSession {
   start() {
     this.running = true;
     this.o.hud.show();
+    this.o.hud.setLineWord?.(this._lineWord);
     this.talk(`${universeName(this.o.seed)} —— ${objectiveText(this.uni)}`);
-    // 深潜图简报：告诉玩家这局的赢法——下去多快都行，上来全靠引绳
+    // 深潜图简报：告诉玩家这局的赢法——下去多快都行，上来全靠引绳/锚绳
     if ((this.map.hazards?.narcosis || 0) >= 0.8)
-      this.talk('简报：到底拿到就走，别恋战。回程抓住引绳（G），它替你压住上升速度。');
+      this.talk(tr('简报：到底拿到就走，别恋战。回程抓住{lw}（G），它替你压住上升速度。', { lw: this._lineWord }));
+    // 海潜简报：两条活路——锚绳回船，浮标叫人
+    if (this._ocean)
+      this.talk('简报：沿锚绳回船是正道。漂远了就先放浮标（C）再出水——船看得见橙色的球，看不见浪尖上的脑袋。');
+    // 冰潜简报：一条活路——安全绳回冰洞；体温是倒计时
+    if (this._ice)
+      this.talk('简报：头顶是一整块冰，唯一的出口是你下来的冰洞——安全绳一路牵回洞口。盯住体寒，冰水每一分钟都在耗体温。');
+    // 罗盘必修图简报：没有参照的回程，认路全看指北针
+    if (this.map.navReq)
+      this.talk('简报：这张图回头的路没有屏幕标记——目标方向和出口方向都在你的罗盘 ◆ 上。盯住方位走。');
     this._last = performance.now();
     this._loop();
   }
@@ -206,6 +222,51 @@ export class DiveSession {
     const p = this.player;
     const inp = input.sample();
     const look = input.consumeLook();
+
+    // —— 出水流程：抬头越过水线，看到水上的世界，等接应 ——
+    if (this.surfaced) {
+      const sf = this.surfaced;
+      sf.t += dt;
+      p.yaw = sf.yaw -= look.dx * 0.0026;
+      p.pitch = sf.pitch = THREE.MathUtils.clamp(sf.pitch - look.dy * 0.0024, -1.3, 1.3);
+      const k = Math.min(1, sf.t / 1.5);
+      const e = k * k * (3 - 2 * k);
+      this.camera.position.lerpVectors(sf.from, sf.to, e);
+      // 出水后的"浮"：海潜跟着浪涌上下，洞潜/冰潜站稳后只剩轻微呼吸晃动
+      const bob = sf.kind === 'ocean' ? Math.sin(this._t * 0.9) * 0.09 + Math.sin(this._t * 1.7) * 0.03 : Math.sin(this._t * 1.6) * 0.02;
+      this.camera.position.y += bob * e;
+      _e.set(sf.pitch, sf.yaw, 0, 'YXZ');
+      this.camera.quaternion.setFromEuler(_e);
+      sf.world.group.userData.update?.(dt, this._t);
+      this.water.setAbove(e);
+      // 水上的大气光照/薄雾要走 water.update 的同一条过渡路径（skyK=1, depth<0 -> 全亮）
+      this.water.update(dt, this.camera.position, { on: false, pos: this.camera.position, dir: _v.set(0, 0, -1) }, 1, -1, innerHeight, this.camera.fov);
+      this.lamp.update(this.camera, { on: false });
+      if (this.composer) { this.composer.vol.uLamp.value = 0; this.composer.render(dt); }
+      else renderer.render(this.scene, this.camera);
+      // 漂远了出水：接应/漂流逻辑继续走；按 W/空格还能潜回去
+      if (sf.far) {
+        if (inp.mz > 0.3 || inp.kick) {   // 反悔：潜下去沿锚绳回船
+          this.surfaced = null; sf.world.group.visible = false; this.water.setAbove(0);
+          this.cave.group.visible = true;
+          for (const s of this.cave.surfaces) s.visible = true;
+          p.pos.y = -0.8; this.adriftT = 0;
+          this.talk('你深吸一口，又潜回蓝水里。');
+          return;
+        }
+        if (this.smb) {
+          this._pickupT = (this._pickupT || 0) + dt;
+          if (this._pickupT > 1 && !this._warn.pickup) { this._warn.pickup = 1; this.talk('远处传来引擎声——你的橙色浮标被看到了，船朝你开过来了。'); }
+          if (this._pickupT > 4.5) return this._finish('boat_pickup');
+        } else {
+          this.adriftT = (this.adriftT || 0) + dt;
+          if (this.adriftT > 20 && (this._warn.a2 || 0) <= this._t) { this._warn.a2 = this._t + 15; this.talk('没有人看到你。这个距离上，一颗脑袋和海鸟没有区别。'); }
+          if (this.adriftT > 45) return this._onDeath('adrift');
+        }
+      } else if (sf.t > sf.wait && !this.ended) return this._finish(sf.ending());
+      return;
+    }
+
     p.yaw -= look.dx * 0.0026;
     p.pitch = THREE.MathUtils.clamp(p.pitch - look.dy * 0.0024, -1.45, 1.45);
 
@@ -214,13 +275,26 @@ export class DiveSession {
       if (a === 'photo') {
         if (!photos.active) { photos.open(); this.finderMode = true; }
         else this._takePhoto();
-      } else if (a === 'interact') { const c = this._ctx(); if (!this.side.interact(c)) this.objective.interact(c); }
+      } else if (a === 'interact') {
+        const c = this._ctx();
+        // 非常规出口的旱厅交互优先：卸装备攀爬 / 发信标呼救
+        if (this._exitSpot?.kind === 'climb') {
+          this._exitSpot = null;
+          this.talk('你把气瓶和配重卸在岸边，顺着岩缝往上攀——上头有风，有风就有天光。');
+          this._pendingEnd = { ending: 'climbed_out', t: 4.5 };
+        } else if (this._exitSpot?.kind === 'far') {
+          this._exitSpot = null;
+          this.talk('你按响了信标，又把反光带挂上最高的石笋。很久之后，旱厅深处传来了人声——救援从山的另一头找过来了。');
+          this._pendingEnd = { ending: 'rescue_call', t: 8 };
+        } else if (!this.side.interact(c)) this.objective.interact(c);
+      }
       else if (a === 'light') { p.lightOn = !p.lightOn; audio.ok(); }
       else if (a === 'backup') {
         if (p.freeflow > 0) { p.freeflow = 0; this.talk('你换上了备用二级头，嘶嘶声停了'); audio.ok(); }
         else { p.backupOn = !p.backupOn; audio.ok(); }
       }
       else if (a === 'line') this._toggleLineHold();
+      else if (a === 'smb') this._deploySMB();
       else if (a === 'mask') {
         if (this.lesson) {
           p.maskOff = !p.maskOff;
@@ -257,9 +331,34 @@ export class DiveSession {
       }
     }
 
+    // —— 挂钩：缆绳松弛度 1.2m，超出就把人拽回来；水流在 player.js 里被 hook 屏蔽 ——
+    if (p.hooked) {
+      const slack = 1.2;
+      _v.subVectors(p.pos, p.hooked);
+      const d = _v.length();
+      if (d > slack) { p.pos.copy(p.hooked).addScaledVector(_v.normalize(), slack); const vn = p.vel.dot(_v); if (vn > 0) p.vel.addScaledVector(_v, -vn); }
+      p.vel.multiplyScalar(Math.exp(-dt * 2.2));
+      if (this._hookLine) {
+        const lp = this._hookLine.geometry.attributes.position;
+        lp.setXYZ(0, p.pos.x, p.pos.y - 0.1, p.pos.z); lp.setXYZ(1, p.hooked.x, p.hooked.y, p.hooked.z);
+        lp.needsUpdate = true;
+      }
+      if (p.inCurrent?.type === 'washer') p.vel.y += Math.sin(this._t * 3) * dt * 0.5;   // 挂着也还是会荡
+    }
+
     // —— 玩家物理/生理 ——
     const dead = p.update(dt, inp, this._ctx());
     if (dead) return this._onDeath(dead);
+
+    // 闯进强流区：报一次话，告诉玩家怎么对付
+    if (p.inCurrent !== this._flowSeen) {
+      this._flowSeen = p.inCurrent;
+      if (p.inCurrent) this.talk({
+        stream: '一股横流的力道从侧面撞上来——顶住硬穿，或者贴近礁石挂钩（G）。',
+        cross: '底下的水流在慢慢变向——刚才还在推你来的方向，现在开始往回拽。',
+        washer: '水在这里打转——一会儿上抛一会儿下按，像被卷进洗衣机。挂钩（G）稳住，或者绕开。',
+      }[p.inCurrent.type]);
+    }
 
     // —— 相机 ——
     const spd = p.vel.length();
@@ -303,17 +402,35 @@ export class DiveSession {
     CAUSTIC.uCT.value = this._t;
     for (const sf of this.cave.surfaces) sf.userData.mat.uniforms.t.value = this._t;
     this.cave.shaftMat.uniforms.uT.value = this._t;
-    this.cave.update?.(dt, p.depth());
+    this.cave.update?.(dt, p.depth(), p.pos);
     let skyK = 0;
     for (const sk of this.cave.skylights) skyK = Math.max(skyK, 1 - Math.min(1, Math.max(0, (p.pos.distanceTo(sk.pos) - sk.r * 0.5) / (sk.r * 3))));
     this.water.update(dt, p.pos, { on: lit, pos: this.lamp.pos, dir: this.lamp.dir }, skyK, p.depth(), innerHeight, this.camera.fov);
     this.silt.update(dt);
+    // —— 水面浮标：放出后蹿上浪尖，水平跟着你走，线攥在手里 ——
+    if (this.smb?.obj) {
+      this.smb.t += dt;
+      const rise = 1 - Math.exp(-this.smb.t / 1.4);
+      const by = p.pos.y + (-0.15 - p.pos.y) * rise;
+      this.smb.buoy.position.set(p.pos.x + Math.sin(this._t * 0.7) * 0.2, by, p.pos.z + Math.cos(this._t * 0.6) * 0.2);
+      const lp = this.smb.line.geometry.attributes.position;
+      lp.setXYZ(0, p.pos.x, p.pos.y - 0.08, p.pos.z);
+      lp.setXYZ(1, this.smb.buoy.position.x, by - 0.7, this.smb.buoy.position.z);
+      lp.needsUpdate = true;
+    }
     this.critters.update(dt, { time: this._t, lightPos: lit ? p.pos : null });
     this.buddy?.update(dt, this._ctx());
     this.peers.update(dt);
     const oHint = this.objective.update(dt, this._ctx());
     const sHint = this.side.update(dt, this._ctx());
     if (oHint || sHint) hud.hint(oHint || sHint);
+    // 目标完成 -> 明确告诉玩家"怎么算结束"（按潜种说人话）
+    if (this.objective.done && !this._objBriefed) {
+      this._objBriefed = true;
+      this.talk(this._ocean
+        ? '目标完成。回船两条路：找到锚绳（按 G 抓住）顺绳升水，在船边 10 米内浮出水面；漂得太远就先在水下放浮标（C）。'
+        : this._ice ? '目标完成。沿安全绳回冰洞，从你下来的那个洞出水。' : '目标完成。沿引绳回入口，从天窗出水。');
+    }
     // 剧情点：走到节点 / 目标完成
     for (const b of this._beats) {
       if (b.fired) continue;
@@ -336,14 +453,23 @@ export class DiveSession {
     const warnGate = (k, cd, t) => { if ((W[k] || 0) <= this._t) { W[k] = this._t + cd; this.talk(t); } };
     if (siltD > 0.45 && !p.onLine && deep) {
       this.siltLostT += dt;
-      if (this.siltLostT > 6) warnGate('silt', 9, '泥沙糊住了——停手别蹬，摸引绳。');
+      if (this.siltLostT > 6) warnGate('silt', 9, tr('泥沙糊住了——停手别蹬，摸{lw}。', { lw: this._lineWord }));
       if (this.siltLostT > 22) return this._onDeath('silt_lost');
     } else { this.siltLostT = Math.max(0, this.siltLostT - dt); if (this.siltLostT <= 0) delete W.silt; }
     if (this.lineBroken && this.cave.lineGap && p.pos.distanceTo(this.cave.lineGap) < 6 && !p.onLine) {
       this.lostT += dt;
-      if (this.lostT > 8) warnGate('lost', 10, '引绳断在前面，你离它越来越远了——回头。');
+      if (this.lostT > 8) warnGate('lost', 10, tr('{lw}断在前面，你离它越来越远了——回头。', { lw: this._lineWord }));
       if (this.lostT > 40) return this._onDeath('lost_line');
     } else { this.lostT = Math.max(0, this.lostT - dt * 0.5); if (this.lostT <= 0) delete W.lost; }
+    // —— 冰潜失温：冰水按秒抽体温，过半后发抖耗气 ——
+    if (this._ice) {
+      this.cold = Math.min(1, this.cold + dt / (this.map.ice?.cold || 420));
+      if (this.cold > 0.55) p.gas = Math.max(0, p.gas - dt * 0.9);   // 发抖耗气
+      if (this.cold > 0.32) warnGate('cold1', 90, '指尖开始发麻——冰水在一刻不停地抽走体温。');
+      if (this.cold > 0.58) warnGate('cold2', 60, '手指快没知觉了，呼吸变急，耗气明显变快——该考虑回了。');
+      if (this.cold > 0.84) warnGate('cold3', 25, '你在控制不住地发抖，动作都僵了。回冰洞，出水，现在。');
+      if (this.cold >= 1) return this._onDeath('hypothermia');
+    }
     // 氮醉三段前兆：发飘 -> 判断钝 -> 失控边缘
     if (p.narcosis > 0.35) warnOnce('nk1', '头有点飘——氮醉的前兆。它的解药只有一种：上升。');
     if (p.narcosis > 0.6) warnOnce('nk2', '判断在变钝。别信你现在的直觉，看着深度表慢慢回升。');
@@ -377,7 +503,7 @@ export class DiveSession {
       else warnOnce('dome', '头出水面了——是个气室。可以摘掉二级头喘口气，省气，也让心率降下来。');
       if (!p.domeBad && p.gas < 60) {
         this._rescueT += dt;
-        if (this._rescueT > 25) { this.talk('水下亮起了灯——搜救队顺着你留的引绳找到了气室。'); return this._finish('rescued'); }
+        if (this._rescueT > 25) { this.talk(tr('水下亮起了灯——搜救队顺着你留的{lw}找到了气室。', { lw: this._lineWord })); return this._finish('rescued'); }
         warnOnce('dome_wait', '气不多了，但这里有空气。留在气室里，保存体力，等救援。');
       }
     } else this._rescueT = Math.max(0, this._rescueT - dt);
@@ -385,11 +511,30 @@ export class DiveSession {
       if (this.found.has(b.i) || p.pos.distanceTo(b.entry) > 4) continue;
       this.found.add(b.i);
       this.events.push({ t: +this._t.toFixed(1), k: 'branch', name: b.name, kind: b.kind });
-      this.talk(b.kind === 'bottomless' ? '这条支洞没有人量过底——线到此为止，再往下全凭运气。' : b.kind === 'pocket' ? '支洞里有空气的味道——前面可能是气室。' : b.kind === 'dead' ? '岔路。多半是死路，进去要想好怎么出来。' : '一条没标在图上的支洞。');
+      this.talk(b.kind === 'bottomless' ? '这条支洞没有人量过底——线到此为止，再往下全凭运气。' : b.kind === 'pocket' ? '支洞里有空气的味道——前面可能是气室。' : b.kind === 'dead' ? '岔路。多半是死路，进去要想好怎么出来。' : b.kind === 'loop' ? '岔路——听水声，像是往主线方向绕回去的。' : b.kind === 'room' ? '岔路尽头的灯照不到墙——前面是个厅。' : b.kind === 'mouth' ? '这条岔道一路上行，远处漏下来一线天光——像是另一口天窗。' : b.kind === 'climb' ? '岔道往上走，水声在后面变小——前头像是个干厅。' : b.kind === 'far' ? '岔道又窄又长，引绳到不了的地方——尽头隐约有风声。' : '一条没标在图上的支洞。');
+    }
+    // —— 非常规出口 ——
+    this._exitSpot = null;
+    for (const x of this.cave.altExits || []) {
+      const d = p.pos.distanceTo(x.pos);
+      if (x.kind === 'mouth') {
+        if (d < x.r && p.inAir && this._t > 30) return this._startSurfacing({
+          pos: x.pos, wait: 6, ending: () => 'alt_exit',
+          line: '顺光上浮——头顶不是进来的那口天窗，是另一个洞口。从这里出去，照样算到家。',
+        });
+      } else if (p.onLand && d < x.r) {
+        this._exitSpot = x;
+        hud.hint(x.kind === 'climb' ? '头顶有条干缝透着风——按 E 卸下装备攀出去' : '旱厅离入口太远，装备背不出去——按 E 发信标呼救', 0.4);
+      }
+    }
+    // 延迟结局：攀爬/呼救的收尾时间
+    if (this._pendingEnd) {
+      this._pendingEnd.t -= dt;
+      if (this._pendingEnd.t <= 0) { const e = this._pendingEnd.ending; this._pendingEnd = null; return this._finish(e); }
     }
     if (p.gas < 45) warnOnce('gas1', '气表进红区了——现在每一口都要省着吸。');
     if (p.gas < 25) warnGate('gas0', 8, '最后一点气了——升水，或者找到人共用气源。');
-    if (p.blackoutT > 0 && p.blackoutT < 5) warnOnce('lamp', '灯在拼命闪——它要灭了，先记住引绳的方向。');
+    if (p.blackoutT > 0 && p.blackoutT < 5) warnOnce('lamp', tr('灯在拼命闪——它要灭了，先记住{lw}的方向。', { lw: this._lineWord }));
 
     // —— 幻觉 ——
     for (const g of this.ghosts) {
@@ -452,26 +597,75 @@ export class DiveSession {
     // —— 联机位姿 ——
     if (this.o.net?.diving) this.peers.maybeSend(this.o.net, dt, p, this.camera.quaternion);
 
-    // —— 出口检测 ——
+    // —— 出口检测：先出水，看一眼水面上的世界，等接应 ——
     const atExit = p.pos.distanceTo(this.cave.entryPos) < this.cave.entryR && p.pos.y > this.cave.entryPos.y - 0.5;
     if (atExit && this._t > 30) {
-      if (this.exitT < 0) { this.exitT = 0; this.talk('出口的蓝光在头顶。做完停留再上去。'); }
+      if (this.exitT < 0) { this.exitT = 0; this.talk(this._ocean ? '潜水船就在头顶。做完停留再上。' : this._ice ? '冰洞的亮光在头顶。做完停留再上去。' : '出口的蓝光在头顶。做完停留再上去。'); }
       this.exitT += dt;
-      if (this.exitT > 3) return this._finish(this._exitEnding());
+      if (this.exitT > 3) return this._startSurfacing({ pos: this.cave.entryPos });
     } else this.exitT = -1;
+
+    // —— 海面失联（海潜）：船看得见船边十米和橙色浮标，看不见浪尖上的一颗脑袋 ——
+    if (this._ocean) {
+      const atSurf = p.depth() < 1.0;
+      const farBoat = p.pos.distanceTo(this.cave.entryPos) > this.cave.entryR;
+      if (atSurf && farBoat) {
+        if (this.smb) {
+          this._pickupT = (this._pickupT || 0) + dt;
+          if (this._pickupT > 1 && !W.pickup) { W.pickup = 1; this.talk('远处传来引擎声——你的橙色浮标被看到了，船朝你开过来了。'); }
+          if (this._pickupT > 3.5) return this._startSurfacing({ pos: p.pos.clone(), boat: this.cave.entryPos, far: true, wait: Infinity, line: '浮上浪尖。橙色浮标在不远处一跳一跳，船的引擎声越来越近。' });
+        } else {
+          this.adriftT = (this.adriftT || 0) + dt;
+          if (this.adriftT > 4) return this._startSurfacing({ pos: p.pos.clone(), boat: this.cave.entryPos, far: true, wait: Infinity, line: '浮上浪尖——海天线平得可怕，船在很远的地方变成一个点。' });
+          warnGate('adrift', 14, '船看不见浪尖上的脑袋——放浮标（C）让它找你，或者潜下去沿锚绳回船。');
+        }
+      } else { this.adriftT = Math.max(0, (this.adriftT || 0) - dt * 0.5); this._pickupT = 0; }
+    }
+
+    // —— 出口方位标记（海潜=船 / 冰潜=冰洞）：开阔水里把"家"投到屏幕上 ——
+    // navReq 的图不给屏幕标记——回程认路全靠罗盘 ◆
+    if ((this._ocean || this._ice) && !this.map.navReq) {
+      const dExit = p.pos.distanceTo(this.cave.entryPos);
+      if (dExit > 9 && !atExit) {
+        _v.copy(this.cave.entryPos).project(this.camera);
+        let x = _v.x, y = _v.y;
+        if (_v.z > 1) { x = -x; y = -y; }   // 出口在背后：标记推到屏幕边缘指着它
+        let sx = x * 0.5 + 0.5, sy = 0.5 - y * 0.5;
+        // 屏外（或背后）：缩到边缘，避开四角仪表区
+        if (!(_v.z < 1 && sx > 0.11 && sx < 0.89 && sy > 0.18 && sy < 0.8)) {
+          const k = Math.max(Math.abs(x) / 0.74, Math.abs(y) / 0.56, 1e-6);
+          sx = Math.min(0.89, Math.max(0.11, (x / k) * 0.5 + 0.5));
+          sy = Math.min(0.8, Math.max(0.18, 0.5 - (y / k) * 0.5));
+        }
+        hud.setExitMark(sx * innerWidth, sy * innerHeight,
+          `${this._ocean ? tr('⇧ 船') : tr('⇧ 冰洞')} <span class="d">${Math.round(dExit)}m</span>`, this.objective.done);
+      } else hud.setExitMark(null);
+    } else hud.setExitMark(null);   // 洞潜没有开阔水出口标记，顺手清掉上一局残留
 
     this._recTrack(dt);
     // —— HUD ——
     hud.update(p, {
       turnGas: this.o.plan?.turnGas || 140,
       planDepth: this.o.plan?.planDepth || 0,
-      objectiveText: this.objective.statusText(this.uni)
-        + (!this.objective.done && this.cave.objectiveSpot
-          ? ` <b>· ${Math.round(p.pos.distanceTo(this.cave.objectiveSpot.pos))}m</b>` : ''),
+      objectiveText: this.objective.done
+        ? (this._ocean ? tr('✓ 目标完成 —— 回潜水船浮出水面') : this._ice ? tr('✓ 目标完成 —— 回冰洞出水') : this.objective.statusText(this.uni))
+          + ((this._ocean || this._ice) && !this.map.navReq ? ` <b>· ${Math.round(p.pos.distanceTo(this.cave.entryPos))}m</b>` : '')
+        : this.objective.statusText(this.uni)
+          + (this.cave.objectiveSpot && !this.map.navReq ? ` <b>· ${Math.round(p.pos.distanceTo(this.cave.objectiveSpot.pos))}m</b>` : ''),
+      // 指北针：朝向带 + ◆ 指向出口(目标完成后)或目标点。navReq 的图这是唯一导航。
+      compass: p.compass ? {
+        h: ((-p.yaw * 180 / Math.PI) % 360 + 360) % 360,
+        wp: (() => { const tp = this.trainer?.compassTarget?.() || (this.objective.done ? this.cave.entryPos : this.cave.objectiveSpot?.pos || this.cave.entryPos);
+          return Math.atan2(tp.x - p.pos.x, -(tp.z - p.pos.z)) * 180 / Math.PI; })(),
+      } : null,
       manualBreath: manual,
       depthTarget: this.trainer?.depthTarget?.() || null,
+      cold: this._ice ? this.cold : null,
+      lineWord: this._lineWord,
     });
-    hud.setLineInfo(this.lineHold ? '抓着引绳 —— 放松，让它带你走' : (p.onLine ? '' : (p.lineDist < 30 ? '' : '看不见引绳了')));
+    hud.setLineInfo(p.hooked ? '挂着礁钩 —— 稳住了，再按 G 收钩'
+      : this.lineHold ? tr('抓着{lw} —— 放松，顺绳回升', { lw: this._lineWord })
+      : (p.onLine ? '' : (p.lineDist < 30 ? '' : tr('看不见{lw}了', { lw: this._lineWord }))));
 
     if (this.composer) this.composer.render(dt);
     else renderer.render(this.scene, this.camera);
@@ -522,13 +716,55 @@ export class DiveSession {
     return best;
   }
 
+  _deploySMB() {
+    const hud = this.o.hud;
+    if (!this._ocean) { hud.hint(this._ice ? '冰盖下放不了浮标——跟着安全绳回冰洞' : '洞里用不上浮标——跟着引绳才对'); return; }
+    if (this.smb) { hud.hint('浮标已经在水面上了'); return; }
+    if (this.player.depth() < 3) { hud.hint('太浅了——下到 3 米以下再放，让它飞一会儿'); return; }
+    this.smb = { t: 0 };
+    const g = new THREE.Group();
+    const buoy = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 9),
+      new THREE.MeshStandardMaterial({ color: 0xff5a1a, roughness: 0.5, emissive: 0xd83a00, emissiveIntensity: 0.6 }));
+    buoy.scale.set(1, 2.4, 1);
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: 0xd8d0c0 }));
+    line.frustumCulled = false;
+    g.add(buoy, line);
+    this.scene.add(g);
+    Object.assign(this.smb, { obj: g, buoy, line });
+    this.talk('你放出浮标——橙色的球蹿上水面，细线还攥在你手里。');
+    this.emit('smb', {});
+    this.o.audio?.ok?.();
+  }
+
+  // 海潜挂钩：礁钩打进礁石/锚点，钩住强流里的身体
+  _toggleHook() {
+    const p = this.player, hud = this.o.hud;
+    if (p.hooked) { p.hooked = null; this._hookLine?.removeFromParent(); this._hookLine = null; hud.hint('收钩，顺流走'); return; }
+    const pts = this.cave.hookPoints || [];
+    let best = null, bd = 4.5;
+    for (const h of pts) { const d = p.pos.distanceTo(h.p); if (d < bd) { bd = d; best = h; } }
+    if (!best) { hud.hint('够不到能挂钩的礁体——贴近大礁石、锚点或沉船再按 G'); return; }
+    p.hooked = best.p;
+    this._hookLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: 0xd8c9a0 }));
+    this._hookLine.frustumCulled = false;
+    this.scene.add(this._hookLine);
+    this.talk('礁钩咬进礁石，细绳一紧——水流从背上滑过去了。');
+    this.o.audio?.ok?.();
+  }
+
   _toggleLineHold() {
     if (this.lineHold) { this.lineHold = false; return; }
+    // 海潜：附近有挂钩点 -> 挂钩优先（引绳是回家用的，不是稳流用的）
+    if (this._ocean && (this.player.hooked || (this.cave.hookPoints || []).some(h => this.player.pos.distanceTo(h.p) < 4.5))) { this._toggleHook(); return; }
     const seg = this._nearestLineSeg();
     if (seg && seg.d < 1.4) {
       this.lineHold = true;
-      this.o.hud.hint('抓住了引绳。松开方向键，它带你回出口。');
-    } else this.o.hud.hint('够不到引绳');
+      this.o.hud.hint(tr('抓住了{lw}。松开方向键，顺绳回升。', { lw: this._lineWord }));
+    } else this.o.hud.hint(tr('够不到{lw}', { lw: this._lineWord }));
   }
 
   _gesture(n) {
@@ -538,7 +774,7 @@ export class DiveSession {
     this.avatar?.gesture(g);
     this.hand?.show(g);
     this.emit('gesture', { g });
-    this.talk({ ok: '你比了个 OK', up: '你竖拇指指了指上面', help: '你猛挥手求救', line: '你指了指引绳', light: '你晃了晃手里的灯' }[g]);
+    this.talk({ ok: '你比了个 OK', up: '你竖拇指指了指上面', help: '你猛挥手求救', line: tr('你指了指{lw}', { lw: this._lineWord }), light: '你晃了晃手里的灯' }[g]);
     // 单机潜伴会回应 ok / 看到求助会回个手势
     if (this.buddy && !this.buddy.lost) {
       if (g === 'ok') setTimeout(() => { this.buddy.obj.userData.gesture?.('ok', 2); this.talk('潜伴回了个 OK'); }, 1200);
@@ -556,6 +792,13 @@ export class DiveSession {
 
   _onDeath(id) {
     if (this.ended) return;
+    // 海面空瓶：头顶没有岩顶，漂着不算死——但船找不到你就是另一回事了
+    if (id === 'out_of_air' && this._ocean && this.player.depth() < 1.6) {
+      this.player.noGas = true;
+      this.player.dead = null;
+      this.talk('气瓶空了——好在这里是海，你还能浮在水面。游回船边，或者放浮标（C）等人看见你。');
+      return;
+    }
     // 潜伴在最后一口气时出现 -> 获救
     if (id === 'out_of_air' && this.buddy && !this.buddy.lost && this.buddy.obj.position.distanceTo(this.player.pos) < 5) {
       this.player.gas = 20;
@@ -575,6 +818,40 @@ export class DiveSession {
     if (p.decoOwed > 8) return 'deco_hit';
     const rough = p.gas < 40 || p.panic > 0.5 || this.buddyLost;
     return rough ? 'survived_rough' : 'survived';
+  }
+
+  // 出水点 -> 水面世界（懒构建，死后结算不浪费）。boatPos：船实际在哪（漂远了出水时船在天际线那头）
+  _surfaceAt(pos, boatPos, entryR) {
+    this._surfCache = this._surfCache || new Map();
+    const key = `${Math.round(pos.x)}_${Math.round(pos.z)}`;
+    if (!this._surfCache.has(key)) {
+      const w = buildSurface(this.map, this.uni, pos, boatPos, entryR ?? this.cave.entryR);
+      this.scene.add(w.group);
+      this._surfCache.set(key, w);
+    }
+    return this._surfCache.get(key);
+  }
+
+  // 出水流程：从水里抬头 -> 扒上水面的点 -> 看一眼天 -> 接应结算
+  _startSurfacing(exitDef) {
+    if (this.surfaced || this.ended) return;
+    const world = this._surfaceAt(exitDef.pos, exitDef.boat);
+    world.group.visible = true;
+    this.cave.group.visible = false;          // 水下世界的岩壳会包住站位——出水后只留水面世界
+    for (const sf of this.cave.surfaces) sf.visible = false;
+    this.surfaced = {
+      t: 0, kind: world.kind, far: !!exitDef.far,
+      from: this.player.pos.clone(), to: world.standPos,
+      yaw: world.face ?? this.player.yaw, pitch: 0.18,
+      wait: exitDef.wait ?? 7,
+      ending: exitDef.ending || (() => this._exitEnding()),
+      world,
+    };
+    this.talk(exitDef.line || (world.kind === 'ocean'
+      ? '扒住船尾梯翻过身——海天线亮得睁不开眼。接应到了，回家。'
+      : world.kind === 'ice'
+        ? '翻上冰面，冷空气第一口就把肺扎醒了。接应的人正朝这边来。'
+        : '扒着坑边的石头爬出水面——头顶是树冠和天光。回到人间了。'), 6);
   }
 
   pause() {

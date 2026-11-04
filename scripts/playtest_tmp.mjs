@@ -27,12 +27,12 @@ say('标题:', await st(`document.querySelector('h1.title')?.textContent`));
 say('今日宇宙:', await st(`document.getElementById('uniname')?.textContent`), '|', await st(`document.getElementById('seedcode')?.textContent`));
 const caveMaps = await page.locator('.map .n').allInnerTexts();
 say('洞潜图数:', caveMaps.length, caveMaps.map(s => s.split('\n')[0].trim()).join(' / '));
-await page.click('[data-d=ocean]');
+await page.locator('[data-d=ocean]').dispatchEvent('click');
 await sleep(300);
 const oceanMaps = await page.locator('.map .n').allInnerTexts();
 say('海潜图数:', oceanMaps.length, oceanMaps.map(s => s.split('\n')[0].trim()).join(' / '));
 await shot('02-ocean');
-await page.click('[data-d=cave]');
+await page.locator('[data-d=cave]').dispatchEvent('click');
 await sleep(300);
 
 // ---------- 图鉴 ----------

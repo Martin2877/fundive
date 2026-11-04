@@ -25,6 +25,7 @@ const SHADER = {
     void main() {
       vec4 base = texture2D(tDiffuse, vUv);
       float z = texture2D(tDepth, vUv).x;
+      float uT = mod(uTime, 628.318);   // 防 uTime 无限增大后 sin 大参数退化
       vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
       vec4 vp = uProjInv * ndc; vp /= vp.w;
       vec3 rd = normalize((uCamWorld * vec4(vp.xyz, 0.0)).xyz);
@@ -54,12 +55,13 @@ const SHADER = {
             float rad = uSky[k].z * (0.55 + 0.4 * clamp(depth / max(0.1, uSurfY - uSky[k].w), 0.0, 1.0));
             float rh = length(p.xz - uSky[k].xy);
             float inside = smoothstep(rad, rad * 0.45, rh);
-            float streak = 0.7 + 0.3 * sin(atan(p.z - uSky[k].y, p.x - uSky[k].x) * 9.0 + uTime * 0.3) * sin(p.y * 0.35 - uTime * 0.2);
+            float streak = 0.7 + 0.3 * sin(atan(p.z - uSky[k].y, p.x - uSky[k].x) * 9.0 + uT * 0.3) * sin(p.y * 0.35 - uT * 0.2);
             acc += uSkyCol * inside * streak * exp(-depth * 0.045) * 0.75 * fade;
           }
         }
       }
       acc *= stepL * uScatter;
+      if (any(notEqual(acc, acc))) acc = vec3(0.0);   // NaN 保险：经 bloom 会放大成全屏黑闪
       gl_FragColor = vec4(base.rgb + acc, base.a);
     }`,
 };

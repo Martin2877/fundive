@@ -22,12 +22,19 @@ export class HUD {
       <div class="corner bl"><div class="panel">
         <div class="prow"><span class="lbl">${t('心率')}</span><b id="h-hr">62</b><small>bpm</small></div>
         <div class="sub" id="h-deco"></div>
+        <div class="sub" id="h-cold"></div>
       </div></div>
       <div class="corner br"><div class="panel">
-        <div class="prow"><span class="lbl">${t('引绳')}</span><b id="h-line">—</b></div>
+        <div class="prow"><span class="lbl" id="h-linelbl">${t('引绳')}</span><b id="h-line">—</b></div>
         <div class="sub" id="h-carry"></div>
       </div></div>
       <div id="obj"></div>
+      <div id="cmp" hidden><div class="ct">
+        <span class="ctick" data-d="0">N</span><span class="ctick" data-d="45">NE</span><span class="ctick" data-d="90">E</span><span class="ctick" data-d="135">SE</span>
+        <span class="ctick" data-d="180">S</span><span class="ctick" data-d="225">SW</span><span class="ctick" data-d="270">W</span><span class="ctick" data-d="315">NW</span>
+        <span class="cway" id="cmp-w">◆</span>
+      </div><i class="ccaret"></i><em class="cdeg" id="cmp-h">0°</em></div>
+      <div id="exitmk" style="opacity:0"></div>
       <div id="lineinfo"></div>
       <div id="hint"></div>
       <div id="breath">${t('吸气')}</div>`;
@@ -119,7 +126,14 @@ export class HUD {
       dEl.textContent = t('氮负荷 {n}%', { n: Math.round(Math.min(1, p.ndlUsed) * 100) });
       dEl.style.color = p.ndlUsed > 0.8 ? '#ffb27f' : '';
     }
+    // 冰潜：体寒倒计时
+    const cEl = $('#h-cold');
+    if (ctx.cold != null) {
+      cEl.textContent = t('体寒 {n}%', { n: Math.round(ctx.cold * 100) });
+      cEl.style.color = ctx.cold > 0.84 ? '#ff7f7f' : ctx.cold > 0.58 ? '#ffb060' : '#9fd8ec';
+    } else cEl.textContent = '';
     // —— 右下：引绳 + 负重 ——
+    if (ctx.lineWord) $('#h-linelbl').textContent = ctx.lineWord;
     const lEl = $('#h-line');
     lEl.textContent = p.onLine ? t('在手边') : p.lineDist < 30 ? `${p.lineDist.toFixed(0)}m` : t('看不见');
     lEl.style.color = p.onLine ? '#7fe9ea' : p.lineDist < 30 ? '#ffb27f' : '#ff7f7f';
@@ -136,6 +150,23 @@ export class HUD {
     }
     if (p.inAir) { br.textContent = t(p.domeBad ? '⚠ 气室空气不良 · 别摘二级头' : '气室 · 空气可呼吸'); br.style.color = p.domeBad ? '#ffb27f' : '#7fe9ea'; }
     $('#obj').innerHTML = ctx.objectiveText;
+    // —— 指北针：顶部罗盘带，◆ = 出口/目标方位 ——
+    const cmp = this.$('#cmp');
+    if (ctx.compass) {
+      cmp.hidden = false;
+      const W = cmp.clientWidth || 300, px = W / 100;   // 视野 ±50°
+      const h = ctx.compass.h;
+      for (const el of cmp.querySelectorAll('.ctick')) {
+        const d = (((+el.dataset.d) - h + 540) % 360) - 180;
+        el.style.transform = `translateX(${W / 2 + d * px}px)`;
+        el.style.opacity = Math.abs(d) < 48 ? 1 : 0;
+      }
+      const wd = (((ctx.compass.wp ?? h) - h + 540) % 360) - 180;
+      const wp = this.$('#cmp-w');
+      wp.style.transform = `translateX(${Math.max(6, Math.min(W - 6, W / 2 + wd * px))}px)`;
+      wp.style.opacity = Math.abs(wd) < 49 ? 1 : 0.35;
+      this.$('#cmp-h').textContent = `${Math.round((h + 360) % 360)}°`;
+    } else cmp.hidden = true;
   }
 
   // Tab 一键唤出/收起键位表
@@ -146,7 +177,7 @@ export class HUD {
       d.innerHTML = `<div class="kb">
         <div class="k">${t('键位表 · Tab 收起')}</div>
         <div class="kg"><b>${t('游动')}</b><span>${t('W/A/S/D 游动 · 空格 快踢(搅沙) · K 蛙踢 · Shift 稳速 · 鼠标 视角')}</span></div>
-        <div class="kg"><b>${t('装备')}</b><span>${t('M 面镜摘/戴 · H 压面镜上沿 · N 鼻子吐气 · X 捏鼻 · R 二级头拿开/含回 · Q 备用二级头 · B/V BCD充气/放气 · L 主灯 · O CCR氧电池 · F 相机 · E 互动 · G 抓引绳 · I/U 吸气/呼气(手动模式)')}</span></div>
+        <div class="kg"><b>${t('装备')}</b><span>${t('M 面镜摘/戴 · H 压面镜上沿 · N 鼻子吐气 · X 捏鼻 · R 二级头拿开/含回 · Q 备用二级头 · B/V BCD充气/放气 · L 主灯 · O CCR氧电池 · F 相机 · E 互动 · G 抓引绳/挂钩 · C 浮标(海潜) · I/U 吸气/呼气(手动模式)')}</span></div>
         <div class="kg"><b>${t('手势')}</b><span>${t('1 OK · 2 上升/撤 · 3 求助 · 4 指引绳 · 5 灯信号')}</span></div>
         <div class="kg"><b>${t('其他')}</b><span>${t('Tab 键位表 · Esc 暂停 · 组合技示例：H+N 同按 = 面镜排水 · X+N = 耳压平衡')}</span></div>
       </div>`;
@@ -164,6 +195,16 @@ export class HUD {
     this._hintT = setTimeout(() => h.classList.remove('show'), sec * 1000);
   }
   setLineInfo(s) { this.$('#lineinfo').textContent = t(s); }
+  setLineWord(w) { const el = this.el.querySelector('.corner.br .lbl'); if (el) el.textContent = t(w); }
+  // 出口方位标记：把船/冰洞投到屏幕上的方位指示（x,y 像素；null 隐藏；hot=目标完成后的强调态）
+  setExitMark(x, y, html, hot) {
+    const m = this.$('#exitmk');
+    if (x == null) { m.style.opacity = 0; return; }
+    m.style.opacity = 1;
+    m.style.left = x + 'px'; m.style.top = y + 'px';
+    m.classList.toggle('hot', !!hot);
+    if (html != null) m.innerHTML = html;
+  }
 }
 
 // 中央对白/事件提示（参考站的"潜伴比了个手势"风格）

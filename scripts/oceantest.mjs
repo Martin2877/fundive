@@ -16,7 +16,7 @@ const ok = (c, m) => { console.log(c ? `  ✓ ${m}` : `  ✗ ${m}`); if (!c) fai
 for (const map of MAPS.filter(m => m.kind === 'ocean')) {
   for (const seed of ['OC-A', 'OC-B']) {
     const uni = makeUniverse(map.id, seed);
-    const w = buildOcean(map, uni), { h } = makeTerrain(map);
+    const w = buildOcean(map, uni), { h } = makeTerrain(map, uni.seed);
     ok(w.group.getObjectByName('cave')?.geometry.index.count > 10000, `${map.id} 海底网格`);
     ok(w.nodes.length === map.route.length && w.nodes[0].pos.y < 0 && w.nodes[0].pos.y > -1, `${map.id} 节点 ${w.nodes.length}，船在水面`);
     ok(w.nodes.slice(1).every(n => n.pos.y > h(n.pos.x, n.pos.z) - 0.5 && n.pos.y < 0), `${map.id} 节点在海底之上、水面之下`);
@@ -45,6 +45,11 @@ for (const map of MAPS.filter(m => m.kind === 'ocean')) {
     const hold = new THREE.Vector3(w.nodes[5].pos.x, w.nodes[5].pos.y, w.nodes[5].pos.z);
     const before = hold.clone();
     ok(!w.nav.clamp(hold, 0.45) && hold.distanceTo(before) < 1e-6, `${map.id} 货舱内部可自由游动（不被碰撞箱卡住）`);
+    // 海图室（节点 8）与其余节点都不应卡在碰撞体/道具里
+    const room = w.nodes[8].pos.clone();
+    ok(!w.nav.clamp(room, 0.45), `${map.id} 海图室内部可自由游动`);
+    const stuck = w.nodes.filter(n => w.nav.clamp(n.pos.clone(), 0.45)).map(n => n.name);
+    ok(!stuck.length, `${map.id} 无节点卡在碰撞体内${stuck.length ? ' 卡住:' + stuck : ''}`);
   }
 }
 console.log(fail ? `\n${fail} 项失败` : '\n全部通过');

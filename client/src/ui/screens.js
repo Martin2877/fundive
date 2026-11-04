@@ -33,66 +33,152 @@ function uniBrief(uni, map) {
 }
 
 // ———————— 主菜单 ————————
+// 大分区卡片轮播：洞潜/海潜/冰潜/教学——一次只看一张大卡，箭头/圆点/滑动切换；
+// 当前分区下面直接铺可选潜点（紧凑行，描述只给选中项展开）；
+// 宇宙信息收成一行，展开才有换种子按钮与说明；系统级入口（组队/图鉴）挪到标题栏。
+const DISCS = [
+  { id: 'cave',  name: '洞潜', en: 'Cave Diving',  sub: '天坑·洞厅·竖井', icon: '◈', ac: '#7fe9ea' },
+  { id: 'ocean', name: '海潜', en: 'Ocean Diving', sub: '珊瑚礁·沉船·蓝洞', icon: '≋', ac: '#5aa8ff' },
+  { id: 'ice',   name: '冰潜', en: 'Ice Diving',   sub: '冰盖·冰山·失温', icon: '❆', ac: '#bfe8f5' },
+  { id: 'train', name: '教学', en: 'Dive School',  sub: 'OW·AOW·战术·生物', icon: '✎', ac: '#ffd27f' },
+];
 export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio }) {
   clear();
-  let disc = 'cave';
-  let mapId = mapsOf(disc)[0].id;
+  const saved = store.data.settings?.menu || {};
+  let disc = DISCS.some(d => d.id === saved.disc) ? saved.disc : 'cave';
+  const perMap = saved.per || {};
+  // train 分区没有地图——mapsOf 为空时 mapId 落 null，预览走 pool，选图栏反正不渲染
+  let mapId = mapsOf(disc).some(m => m.id === perMap[disc]) ? perMap[disc] : (mapsOf(disc)[0]?.id ?? null);
   let seed = randomSeed();
-  const preview = () => onPreview?.(mapId, seed);
+  const save = () => { perMap[disc] = mapId; store.setSetting('menu', { disc, per: perMap }); };
+  const preview = () => onPreview?.(disc === 'train' ? 'pool' : mapId, seed);
   const scr = el(`
-    <div class="screen"><div class="panel" style="width:min(700px,94vw)">
-      <div class="k">${t('潜水模拟 · 在线手账')}</div>
-      <h1 class="title">${t('深蓝手账')}<small style="font-size:.38em;margin-left:14px;color:var(--dim);letter-spacing:.12em">${getLang() === 'en' ? '深蓝手账' : 'DeepLog'}</small></h1>
-      <div class="sub">${t('一款写实向的潜水模拟与手账：下水、拍照、复盘、收集。从天坑洞穴到深海与冰下，每一次下潜都是一页新日志。')}</div>
-      <div class="disc">
-        <button data-d="cave" class="on">${t('洞潜')}</button>
-        <button data-d="ocean">${t('海潜')}</button>
-        <button disabled title="${t('敬请期待')}">${t('冰潜')} · ${t('即将开放')}</button>
+    <div class="screen"><div class="panel menu" style="width:min(640px,94vw)" tabindex="-1">
+      <div class="m-head">
+        <div>
+          <div class="k">${t('潜水模拟 · 在线手账')}</div>
+          <h1 class="title" style="font-size:clamp(28px,4.6vw,42px)">${t('深蓝手账')}<small style="font-size:.36em;margin-left:12px;color:var(--dim);letter-spacing:.12em">${getLang() === 'en' ? '深蓝手账' : 'DeepLog'}</small></h1>
+        </div>
+        <div class="m-sys">
+          <button class="btn small" id="lobby">${t('组队潜水')}</button>
+          <button class="btn small" id="gallery">${t('图鉴')}</button>
+        </div>
+      </div>
+      <div class="car">
+        <button class="car-nav prev" id="cprev" aria-label="‹">‹</button>
+        <div class="car-view" id="carview">
+          <div class="car-track" id="cartrack">${DISCS.map(d => `<button class="dc" data-d="${d.id}" style="--ac:${d.ac}">
+            <span class="dc-ic">${d.icon}</span>
+            <span class="dc-c">${d.id === 'train' ? t('{n} 门课', { n: COURSES.length }) : t('{n} 个潜点', { n: mapsOf(d.id).length })}</span>
+            <span class="dc-n">${t(d.name)}<small>${d.en}</small></span>
+            <span class="dc-s">${t(d.sub)}</span>
+          </button>`).join('')}</div>
+        </div>
+        <button class="car-nav next" id="cnext" aria-label="›">›</button>
+      </div>
+      <div class="car-dots" id="cardots">${DISCS.map((d, i) => `<button data-i="${i}" aria-label="${d.name}"></button>`).join('')}</div>
+      <div id="trainbox" hidden>
+        <div class="sub" style="margin:4px 0 8px;font-size:12.5px">${t('从第一次下水到战术考核：每个动作拆到按键级，教练全程盯着。')}</div>
+        <div id="cmini"></div>
       </div>
       <div class="maps" id="maplist"></div>
-      <div class="uni">
-        <div class="seedrow">${t('今日潜点（宇宙）')} <b id="uniname"></b> <code id="seedcode"></code>
+      <div class="uniline" id="unibox">
+        <span class="uni-obj" id="uniobj"></span>
+        <span class="uni-seed"><b id="uniname"></b><code id="seedcode"></code><button class="uni-tog" id="utog" aria-expanded="false">${t('宇宙')} ▾</button></span>
+      </div>
+      <div class="uni-more" id="unimore" hidden>
+        <div class="flavor" id="unibrief"></div>
+        <div class="seedrow" style="margin:6px 0 0">
           <button class="btn small" id="reseed">${t('换一个宇宙')}</button>
           <button class="btn small" id="seededit">${t('输入宇宙坐标')}</button>
           <button class="btn small" id="seedcopy">${t('复制坐标')}</button>
         </div>
-        <div class="flavor" id="unibrief"></div>
-        <div class="sub" id="uniobj" style="font-size:12.5px;margin:4px 0"></div>
         <details class="why"><summary>${t('宇宙是什么？')}</summary>
           <div class="sub" style="font-size:12px">${t('宇宙 = 同一张地图的一个“当日现实”。宇宙坐标决定：本次任务目标、能见度、水流和氮醉强度、哪些支洞通哪些塌了、生物分布、设备是否出故障，以及偶发的彩蛋。同一坐标在任何设备上都生成同一个世界——组队时全员自动进入同一个宇宙，也可以把坐标发给朋友挑战同一个洞。')}</div>
         </details>
       </div>
-      <div class="row" style="margin-top:14px">
-        <button class="btn primary" id="solo">${t('单人潜水')}</button>
-        <button class="btn" id="lobby">${t('组队潜水')}</button>
-        <button class="btn" id="train">${t('教学课程')}</button>
-        <button class="btn" id="gallery">${t('图鉴')}</button>
+      <div class="m-cta">
+        <button class="btn primary big" id="solo">${t('单人潜水')} →</button>
+        <button class="btn primary big" id="gotrain" hidden>${t('进入课程表')} →</button>
       </div>
-      <div class="sub" style="margin-top:6px;font-size:11.5px">${t('单人潜水有 AI 潜伴同行；组队潜水最多 4 人，同一宇宙共潜。')}</div>
-      <div class="sub" style="margin-top:10px;font-size:11.5px">${t('洞穴、地名和人物以真实事件为原型改编。真实潜水需要专门的培训和装备，游戏里的规则大多照着现实做，只是把时间压缩了。建议戴耳机。')}</div>
+      <details class="m-about"><summary>${t('关于深蓝手账')}</summary>
+        <div class="sub" style="font-size:12px;margin-top:6px">${t('一款写实向的潜水模拟与手账：下水、拍照、复盘、收集。单人潜水有 AI 潜伴同行；组队潜水最多 4 人，同一宇宙共潜。')}</div>
+        <div class="sub" style="font-size:12px;margin-top:4px">${t('洞穴、地名和人物以真实事件为原型改编。真实潜水需要专门的培训和装备，游戏里的规则大多照着现实做，只是把时间压缩了。建议戴耳机。')}</div>
+      </details>
     </div></div>`);
   app().appendChild(scr);
+  scr.querySelector('.panel').focus({ preventScroll: true });
 
   const list = scr.querySelector('#maplist');
+  const track = scr.querySelector('#cartrack');
+  const dots = [...scr.querySelectorAll('#cardots button')];
   const render = () => {
+    const isTrain = disc === 'train';
+    const idx = DISCS.findIndex(d => d.id === disc);
+    track.style.transform = `translateX(-${idx * 100}%)`;
+    dots.forEach((x, i) => x.classList.toggle('on', i === idx));
+    scr.querySelectorAll('.dc[data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === disc));
+    scr.querySelector('#trainbox').hidden = !isTrain;
+    scr.querySelector('#unibox').hidden = isTrain;
+    scr.querySelector('#unimore').hidden = isTrain || scr.querySelector('#unimore').hidden;
+    list.hidden = isTrain;
+    scr.querySelector('#solo').hidden = isTrain;
+    scr.querySelector('#gotrain').hidden = !isTrain;
+    if (isTrain) {
+      const prog = store.data.courses || {};
+      scr.querySelector('#cmini').innerHTML = COURSES.map(c => {
+        const got = c.lessons.reduce((s, l) => s + (prog[c.id]?.[l.id]?.stars || 0), 0);
+        return `<div class="cm"><b>${t(c.name)}<small>${c.en}</small></b><span class="cm-s">${'★'.repeat(got)}${'☆'.repeat(Math.max(0, c.lessons.length * 3 - got))}</span><i>${t(c.desc)}</i></div>`;
+      }).join('');
+      return;
+    }
     list.innerHTML = '';
-    scr.querySelectorAll('.disc [data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === disc));
     for (const m of mapsOf(disc)) {
       const b = el(`<button class="map${m.id === mapId ? ' sel' : ''}">
         <span class="tag">${t(m.sub)}</span>
         <span class="diff">${DIFF[m.difficulty]} · ${t('最深')} ${m.maxDepth}m</span>
         <span class="n">${mapName(m)}<small>${altName(m)}</small>${store.data.chapters?.[m.id]?.done ? ' <span style="color:var(--lagoon)" title="' + t('章节已完成') + '">✓</span>' : ''}</span>
         <span class="d">${t(STORY[m.id]?.title || '')}　${t(m.desc)}</span></button>`);
-      b.onclick = () => { mapId = m.id; render(); preview(); };
+      b.onclick = () => { mapId = m.id; save(); render(); preview(); };
       list.appendChild(b);
     }
     const map = MAPS.find(m => m.id === mapId), uni = makeUniverse(mapId, seed);
     scr.querySelector('#seedcode').textContent = seed;
     scr.querySelector('#uniname').textContent = universeName(seed);
     scr.querySelector('#unibrief').innerHTML = uniBrief(uni, map) + uni.flavor.map(f => `<span>${t(f)}</span>`).join('');
-    scr.querySelector('#uniobj').innerHTML = `<b style="color:var(--lagoon)">${OBJECTIVE_DEFS[uni.objective.type].icon} ${t('本次目标：')}</b>${objectiveText(uni)}`;
+    scr.querySelector('#uniobj').innerHTML = `<b>${OBJECTIVE_DEFS[uni.objective.type].icon}</b> ${objectiveText(uni)}`;
   };
-  scr.querySelectorAll('.disc [data-d]').forEach(x => x.onclick = () => { disc = x.dataset.d; mapId = mapsOf(disc)[0].id; render(); preview(); });
+  const setDisc = (d) => {
+    if (d === disc) return;   // 同卡再点：不换图不重渲染，更别重建背景世界
+    disc = d;
+    if (disc !== 'train') mapId = mapsOf(disc).some(m => m.id === perMap[disc]) ? perMap[disc] : mapsOf(disc)[0].id;
+    save(); render(); preview();
+  };
+  const step = (k) => setDisc(DISCS[(DISCS.findIndex(d => d.id === disc) + k + DISCS.length) % DISCS.length].id);
+  scr.querySelectorAll('.dc[data-d]').forEach(x => x.onclick = () => setDisc(x.dataset.d));
+  scr.querySelector('#cprev').onclick = () => step(-1);
+  scr.querySelector('#cnext').onclick = () => step(1);
+  dots.forEach(x => x.onclick = () => setDisc(DISCS[+x.dataset.i].id));
+  scr.querySelector('.panel').onkeydown = (e) => {
+    if (e.key === 'ArrowLeft') { step(-1); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { step(1); e.preventDefault(); }
+  };
+  // 触屏滑动切卡
+  const view = scr.querySelector('#carview');
+  let swX = null;
+  view.addEventListener('pointerdown', (e) => { swX = e.clientX; });
+  view.addEventListener('pointerup', (e) => {
+    if (swX == null) return;
+    const dx = e.clientX - swX; swX = null;
+    if (Math.abs(dx) > 56) step(dx < 0 ? 1 : -1);
+  });
+  scr.querySelector('#utog').onclick = (e) => {
+    const box = scr.querySelector('#unimore');
+    box.hidden = !box.hidden;
+    e.currentTarget.setAttribute('aria-expanded', String(!box.hidden));
+    e.currentTarget.textContent = box.hidden ? t('宇宙') + ' ▾' : t('宇宙') + ' ▴';
+  };
+  scr.querySelector('#gotrain').onclick = onTrain;
   render(); preview();
   scr.querySelector('#reseed').onclick = () => { seed = randomSeed(); render(); preview(); };
   scr.querySelector('#seededit').onclick = () => {
@@ -106,7 +192,6 @@ export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio
   };
   scr.querySelector('#solo').onclick = () => onSolo(mapId, seed);
   scr.querySelector('#lobby').onclick = () => onLobby(mapId, seed);
-  scr.querySelector('#train').onclick = onTrain;
   scr.querySelector('#gallery').onclick = onGallery;
 }
 
@@ -262,7 +347,9 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onBack }) {
       </div>
       <div class="sub" style="font-size:11.5px;margin:2px 0 6px">${t('折返气压：气压降到这条线就该掉头，HUD 气量条上有橙色标记。计划深度：超过它 2 米会提醒你回头，HUD 上也会显示。深度越大，氮醉和减压压力越大。')}</div>
       <div class="sub" id="kit" style="font-size:12.5px;line-height:2;margin:10px 0"></div>
-      ${(map.hazards?.narcosis || 0) >= 0.8 ? `<div class="sub" style="margin:6px 0;font-size:12px;color:#ffd27f">${t('深潜须知：下去多快都行，上来必须慢——按 G 抓住引绳，它会把你的爬升压在安全速度；井底找到就走，氮醉和氧中毒都在计时。')}</div>` : ''}
+      ${map.kind === 'ocean' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：回到潜水船 10 米内浮出水面即撤离成功；离船太远就先在水下 3 米以下放浮标（C），船会来找浮标。')}</div>` : ''}
+      ${map.kind === 'ice' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：头顶只有冰——沿安全绳回冰洞，从下来的那个洞出水。')}</div>` : ''}
+      ${(map.hazards?.narcosis || 0) >= 0.8 ? `<div class="sub" style="margin:6px 0;font-size:12px;color:#ffd27f">${t(map.kind === 'ocean' ? '深潜须知：下去多快都行，上来必须慢——按 G 抓住锚绳，它会把你的爬升压在安全速度；深处找到就走，氮醉和氧中毒都在计时。' : '深潜须知：下去多快都行，上来必须慢——按 G 抓住引绳，它会把你的爬升压在安全速度；井底找到就走，氮醉和氧中毒都在计时。')}</div>` : ''}
       <div class="row" style="margin-top:8px">
         <button class="btn primary" id="dive">${t('按计划下水')}</button>
         <button class="btn" id="whim" title="${t('不做计划：折返线很低、深度不设限——更刺激，也更危险')}">${t('临时起意')}</button>

@@ -50,13 +50,16 @@ float tpR(sampler2D t, vec3 p, vec3 w, float sc){
 }
 float caustic(vec2 p, float t) {
   vec2 i = p; float c = 1.0; const float inten = 0.005;
+  t = mod(t, 150.796);   // 四轮 sin/cos 的合成周期恰为 48π——取模防大参数退化出 NaN
   for (int n = 0; n < 4; n++) {
     float tt = t * (1.0 - (3.5 / float(n + 1)));
     i = p + vec2(cos(tt - i.x) + sin(tt + i.y), sin(tt - i.y) + cos(tt + i.x));
-    c += 1.0 / length(vec2(p.x / (sin(i.x + tt) / inten), p.y / (cos(i.y + tt) / inten)));
+    vec2 q = vec2(p.x / (sin(i.x + tt) / inten), p.y / (cos(i.y + tt) / inten));
+    c += min(1.0 / max(length(q), 1e-4), 1e3);   // 除零防爆 Inf——一个 Inf 像素经 bloom 模糊会吞掉整帧
   }
-  c /= 4.0; c = 1.17 - pow(c, 1.4);
-  return clamp(pow(abs(c), 8.0), 0.0, 1.2);
+  c /= 4.0; c = 1.17 - pow(min(c, 40.0), 1.4);
+  float r = clamp(pow(abs(c), 8.0), 0.0, 1.2);
+  return r == r ? r : 0.0;   // NaN 保险：漏出去一个 NaN，bloom 会把整帧拉黑
 }
 vec3 tpN(sampler2D t, vec3 p, vec3 w, vec3 n, float sc, float k){
   vec3 tx = texture2D(t, p.zy * sc).xyz * 2.0 - 1.0;

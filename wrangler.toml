@@ -1,0 +1,5 @@
+# Cloudflare Pages 部署配置
+# 构建：npm run build（根目录，workspaces 里的 client -> client/dist）
+name = "fundive"
+pages_build_output_dir = "client/dist"
+compatibility_date = "2025-10-01"

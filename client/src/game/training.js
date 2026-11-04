@@ -10,7 +10,7 @@ import { SPECIES, spName } from '@fundive/shared/maps.js';
 const _v = new THREE.Vector3();
 // 会被记为"乱按"的动作键（方向/视角不算）
 const ACTION_KEYS = new Set(['KeyM', 'KeyH', 'KeyN', 'KeyX', 'KeyR', 'KeyO', 'KeyB', 'KeyV', 'KeyK',
-  'KeyE', 'KeyF', 'KeyQ', 'KeyL', 'KeyG', 'Space', 'Tab',
+  'KeyE', 'KeyF', 'KeyQ', 'KeyL', 'KeyG', 'KeyC', 'Space', 'Tab',
   'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5']);
 
 export class TrainingSession extends DiveSession {
@@ -99,6 +99,12 @@ export class TrainingSession extends DiveSession {
     if (this.ended) return;
     this.player.dead = null;
     this.trainer.fail(id);
+  }
+
+  _finish(ending, aborted) {
+    // 课中被船接应：正常结课走 finishLesson，没结课就把学员捞回来继续
+    if (ending === 'boat_pickup' && !this.ended) { this.trainer?.onSurfaceEvent?.(ending); return; }
+    super._finish(ending, aborted);
   }
 
   finishLesson(result) {
@@ -249,6 +255,18 @@ class Trainer {
     }
   }
 
+  // 被船从水面接走：若当前步骤就是要"出水等接应"则计完成；否则捞回出发点记一次失误
+  onSurfaceEvent(ending) {
+    const st = this.cur;
+    if (st?.check.t === 'pickup') return this._complete();
+    const p = this.p, n = this.s.cave.nodes[this.lesson.start?.node || 0];
+    p.pos.copy(n.pos).add(_v.set(0.5, 0, 0.5));
+    p.vel.set(0, 0, 0); p.gas = Math.max(p.gas, 180); p.noGas = false;
+    this.mistakes++;
+    this.s.talk(t('船把你接上了甲板：“课还没上完——下去把剩下的补完。”'));
+    this._renderScore();
+  }
+
   _pickEvent() {
     const st = this.cur;
     if (!st || st.check.t !== 'rand_gesture' || this.done) return;
@@ -355,6 +373,19 @@ class Trainer {
         }
         break;
       }
+      case 'bearing': {
+        // 指北针：把朝向对准给定方位(deg) 或对准某节点方向(node)，保持 hold 秒
+        const h = ((-p.yaw * 180 / Math.PI) % 360 + 360) % 360;
+        const target = c.node != null && this.s.cave.nodes[c.node]
+          ? Math.atan2(this.s.cave.nodes[c.node].pos.x - p.pos.x, -(this.s.cave.nodes[c.node].pos.z - p.pos.z)) * 180 / Math.PI
+          : c.deg;
+        const d = Math.abs((((h - target) + 540) % 360) - 180);
+        const ok = d <= (c.tol || 12);
+        st.prog = Math.min(1, (st._bt || 0) / (c.hold || 1.5));
+        st._bt = ok ? (st._bt || 0) + dt : 0;
+        if (st._bt >= (c.hold || 1.5)) this._complete();
+        break;
+      }
       case 'deploy': st.prog = 0; break; // 由 onAction 完成
       case 'gesture': break;             // 由 onGesture 完成
       case 'rand_gesture': st.prog = st.got / st.need; break;
@@ -385,6 +416,7 @@ class Trainer {
       }
       case 'lightoff': if (!p.lightOn && !p.backupOn) this._complete(); break;
       case 'exit': if (this.s._ctx().atExit) this._complete(); break;
+      case 'pickup': break;          // 由 onSurfaceEvent 完成
     }
 
     // 蛙踢纪律：需要蛙踢的步骤里按空格 = 搅沙踢法
@@ -444,6 +476,13 @@ class Trainer {
     return null;
   }
 
+  // 罗盘 ◆ 指向：当前步骤是 bearing 且有 node -> 指那个节点，否则 null（罗盘指默认目标）
+  compassTarget() {
+    const c = this.cur?.check;
+    if (!c || c.t !== 'bearing' || c.node == null) return null;
+    return this.s.cave.nodes[c.node]?.pos || null;
+  }
+
   // —— 面板渲染 ——
   _renderList() {
     const html = this.steps.map((s, i) => {
@@ -491,6 +530,7 @@ class Trainer {
     else if (c.t === 'rand_gesture' && st.evt) live.push(t('回应窗口 {s}s · 已答 {g}/{n}', { s: Math.max(0, 9 - st.t).toFixed(0), g: st.got, n: st.need }));
     else if (c.t === 'key') live.push(t('点按 {k}', { k: st.key ? t(st.key) : c.code }));
     else if (c.t === 'exit') live.push(t('游回入口上水面'));
+    else if (c.t === 'pickup') live.push(t('升出水面——船会跟着你的浮标来找你'));
     else if (c.t === 'mask') live.push(t(c.on ? '按 M 戴回面镜' : '按 M 摘下面镜'));
     else if (c.t === 'photo') live.push(t('F 开取景器再按 F 拍 —— 要 ≥{n}★', { n: c.min }));
     else if (c.t === 'lightoff') live.push(t(p.lightOn || p.backupOn ? '灯还亮着 —— 按 L' : '灯还灭着 —— 按 L'));

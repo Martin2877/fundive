@@ -6,6 +6,7 @@ import { GameAudio } from './game/audio.js';
 import { HUD, Talker } from './ui/hud.js';
 import { PhotoSystem } from './game/photo.js';
 import { Net } from './game/netplay.js';
+import { SupaNet, supabaseConfigured } from './game/netplay_supa.js';
 import { DiveSession } from './game/session.js';
 import { showMenu, showLobby, showPlan, showDebrief, showGallery, showPause, showCourses, showLessonResult } from './ui/screens.js';
 import { showReplay } from './ui/replay.js';
@@ -47,13 +48,15 @@ const audio = new GameAudio();
 const hud = new HUD();
 const talk = new Talker();
 const photos = new PhotoSystem(renderer);
-const net = new Net();
+// 联机后端：配了 Supabase（VITE_SUPABASE_URL+ANON_KEY，纯静态部署联机方案）走 Realtime 频道；
+// 否则走 ws —— VITE_WS_URL 指向自托管 server/，再否则同源 /ws（npm start / vite 代理）。
+const net = supabaseConfigured() ? new SupaNet() : new Net();
 
 let session = null;
 let pauseEl = null;
 let backdrop = null;
 // 调试钩子（e2e/控制台）
-window.__fd = { get session() { return session; }, get backdrop() { return backdrop; } };
+window.__fd = { get session() { return session; }, get backdrop() { return backdrop; }, dive: (mapId, seed = 1) => startDive({ mapId, seed, plan: null, solo: true }) };
 
 // —— 菜单背景：选中地图的洞穴慢速巡游 ——
 function setBackdrop(mapId, seed) {
@@ -135,7 +138,10 @@ function menu() {
       try {
         await net.connect();
       } catch (e) {
-        talk.say('连不上服务器——只能独自下水了');
+        // 纯静态托管（如 Cloudflare Pages）没有 /ws、也没配 Supabase——提示清楚一点再落单机
+        talk.say(supabaseConfigured() || import.meta.env?.VITE_WS_URL
+          ? '连不上联机服务器——只能独自下水了'
+          : '这个部署没有联机服务——组队要自托管服务端或配置 Supabase，先自己下水吧');
         plan(mapId, seed, false);
         return;
       }
@@ -235,7 +241,8 @@ function startDive({ mapId, seed, plan: pl, solo, netPlayers }) {
   photos.film = 24;
   photos.shots = [];
   // 非触屏时提示锁定鼠标
-  if (!input.isTouch) hud.hint('点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓引绳', 5);
+  const _k = getMap(mapId).kind;
+  if (!input.isTouch) hud.hint(_k === 'ocean' ? '点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓锚绳 · C 浮标' : _k === 'ice' ? '点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓安全绳' : '点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓引绳', 5);
   session.start();
 }
 

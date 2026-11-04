@@ -72,10 +72,12 @@ await send('Page.enable');
 await send('Page.navigate', { url: URL_ });
 await wait(4500);
 await shot('t1-menu');
-ok(await evalJs(`!!document.getElementById('train')`), '菜单出现「教学课程」按钮');
+ok(await evalJs(`!!document.querySelector('[data-d=train]')`), '菜单出现「教学」分区卡');
 
-// 进课程表
-await evalJs(`document.getElementById('train').click()`);
+// 进课程表：先点教学分区卡，再点「进入课程表」
+await evalJs(`document.querySelector('[data-d=train]').click()`);
+await wait(400);
+await evalJs(`document.getElementById('gotrain').click()`);
 await wait(800);
 await shot('t2-courses');
 const nLessons = await evalJs(`document.querySelectorAll('.lesson').length`);
