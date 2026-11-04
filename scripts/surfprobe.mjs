@@ -31,7 +31,19 @@ await page.waitForTimeout(2600);   // 接应等待中段
 await page.screenshot({ path: `reports/shots/surface_${KIND}${MAPIDX}_b.png` });
 const st = await page.evaluate(() => ({ surfaced: !!window.__fd.session?.surfaced, ended: window.__fd.session?.ended, t: window.__fd.session?.surfaced?.t }));
 console.log('state:', JSON.stringify(st));
-await page.waitForTimeout(3000);
+// 新流程验证：按 W 潜回水里 -> 再出水 -> 按 3/E 发信号 -> 结束（有人接应的图直接等结束）
+if (st.surfaced && !st.ended) {
+  await page.keyboard.down('KeyW'); await page.waitForTimeout(400); await page.keyboard.up('KeyW');
+  await page.waitForTimeout(300);
+  const back = await page.evaluate(() => ({ surfaced: !!window.__fd.session?.surfaced, y: window.__fd.session?.player.pos.y }));
+  console.log('dive-back:', JSON.stringify(back));
+  // 再传回出口，让它第二次出水
+  await page.evaluate(() => { const s = window.__fd.session; s.player.pos.copy(s.cave.entryPos); s.player.pos.y = s.cave.entryPos.y - 0.3; });
+  await page.waitForTimeout(4500);
+  const again = await page.evaluate(() => ({ surfaced: !!window.__fd.session?.surfaced, signal: window.__fd.session?.surfaced?.signal }));
+  console.log('re-surfaced:', JSON.stringify(again));
+  if (again.surfaced) { await page.keyboard.press('Digit3'); await page.waitForTimeout(9500); }
+} else await page.waitForTimeout(3000);
 const end = await page.evaluate(() => window.__fd.session?.ended || !!document.querySelector('.endcard'));
 console.log('ended:', end);
 await browser.close();

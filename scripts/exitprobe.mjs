@@ -33,8 +33,10 @@ for (let mi = 0; mi < 8; mi++) {
       s.player.pos.set(p[0], (pk ? pk.waterY : p[1] + 1.5) - 0.3, p[2]); s.player.vel.set(0, 0.4, 0); s.player.buoy = 0.4;
     }, x.p);
     await page.waitForTimeout(2500);
-    const st = await page.evaluate(() => ({ surfaced: !!window.__fd.session?.surfaced, inAir: window.__fd.session?.player.inAir, y: window.__fd.session?.player.pos.y.toFixed(2) }));
+    const st = await page.evaluate(() => ({ surfaced: !!window.__fd.session?.surfaced, signal: window.__fd.session?.surfaced?.signal, inAir: window.__fd.session?.player.inAir, y: window.__fd.session?.player.pos.y.toFixed(2) }));
     console.log('  mouth:', JSON.stringify(st));
+    await page.waitForTimeout(2500);
+    if (st.signal) await page.keyboard.press('Digit3');   // 无人接应的出口：挥手求救后才收尾
     await page.waitForTimeout(8000);
     const end = await page.evaluate(() => document.querySelector('.endcard h2')?.textContent || (window.__fd.session?.ended ? 'ended' : 'none'));
     console.log('  结局:', end);

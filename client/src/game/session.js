@@ -244,16 +244,31 @@ export class DiveSession {
       this.lamp.update(this.camera, { on: false });
       if (this.composer) { this.composer.vol.uLamp.value = 0; this.composer.render(dt); }
       else renderer.render(this.scene, this.camera);
-      // 漂远了出水：接应/漂流逻辑继续走；按 W/空格还能潜回去
+      // 水面呼吸：咬着二级头就还在走气表；摘了（R）就改吸空气，气瓶歇着
+      if (!p.regOut && !p.noGas && p.gas > 0) p.gas = Math.max(0, p.gas - dt * 0.35);
+      if (p.gas <= 0 && !p.regOut) { p.regOut = true; this.talk('气瓶最后嘶了一声空了——你干脆摘下二级头，水面上有的是空气。'); }
+      // 水面动作：摘/戴二级头、呼救发信号、暂停
+      for (const a of inp.actions) {
+        if (a === 'reg') { p.regOut = !p.regOut; this.talk(p.regOut ? '你松开二级头——第一口空气凉得带土味，气表停在原地。' : '你又把二级头咬回嘴里。'); audio.ok(); }
+        else if (a === 'pause' || a === 'unlock') { this.paused ? this.resume() : this.pause(); }
+        else if (a === 'keys') hud.toggleKeys?.();
+        else if (a === 'interact' && sf.signal && !sf.signaled) { sf.signaled = 1; sf.signalT = 0; this.emit('signal', {}); this.talk('你贴着水面连吹三声短哨，又扯开嗓子喊——远处传来回应的人声：接应听见了。'); }
+        else if (a === 'gesture:3' && sf.signal && !sf.signaled) { sf.signaled = 1; sf.signalT = 0; this.emit('signal', {}); this.talk('你扒着水沿朝岸上猛挥手——有人抬手回应，朝这边过来了。'); }
+      }
+      // 随时潜回去：结局没触发前，W/空格 把你送回水里
+      if (inp.mz > 0.3 || inp.kick) {
+        this.surfaced = null; sf.world.group.visible = false; this.water.setAbove(0);
+        this.cave.group.visible = true;
+        for (const s of this.cave.surfaces) s.visible = true;
+        p.pos.y = sf.from.y - 1.2; p.regOut = false; this.adriftT = 0; this.exitT = -1;
+        this.talk('你深吸一口，又潜回水里。');
+        return;
+      }
+      if (sf.signal && !sf.signaled) hud.hint('这里没人接应——按 3 挥手 / 按 E 吹哨呼喊；按 W 潜回水里', 0.4);
+      else if (!sf.far && !p.regOut) hud.hint('按 R 摘下二级头省气；按 W 潜回水里', 0.4);
+      else if (!sf.far) hud.hint('按 W 潜回水里', 0.4);
+      // 漂远了出水：接应/漂流逻辑继续走
       if (sf.far) {
-        if (inp.mz > 0.3 || inp.kick) {   // 反悔：潜下去沿锚绳回船
-          this.surfaced = null; sf.world.group.visible = false; this.water.setAbove(0);
-          this.cave.group.visible = true;
-          for (const s of this.cave.surfaces) s.visible = true;
-          p.pos.y = -0.8; this.adriftT = 0;
-          this.talk('你深吸一口，又潜回蓝水里。');
-          return;
-        }
         if (this.smb) {
           this._pickupT = (this._pickupT || 0) + dt;
           if (this._pickupT > 1 && !this._warn.pickup) { this._warn.pickup = 1; this.talk('远处传来引擎声——你的橙色浮标被看到了，船朝你开过来了。'); }
@@ -263,6 +278,9 @@ export class DiveSession {
           if (this.adriftT > 20 && (this._warn.a2 || 0) <= this._t) { this._warn.a2 = this._t + 15; this.talk('没有人看到你。这个距离上，一颗脑袋和海鸟没有区别。'); }
           if (this.adriftT > 45) return this._onDeath('adrift');
         }
+      } else if (sf.signal) {
+        // 无人接应的出口：玩家发出信号后才收尾——挥手/吹哨都算
+        if (sf.signaled) { sf.signalT += dt; if (sf.signalT > 4) return this._finish(sf.ending()); }
       } else if (sf.t > sf.wait && !this.ended) return this._finish(sf.ending());
       return;
     }
@@ -519,8 +537,8 @@ export class DiveSession {
       const d = p.pos.distanceTo(x.pos);
       if (x.kind === 'mouth') {
         if (d < x.r && p.inAir && this._t > 30) return this._startSurfacing({
-          pos: x.pos, wait: 6, ending: () => 'alt_exit',
-          line: '顺光上浮——头顶不是进来的那口天窗，是另一个洞口。从这里出去，照样算到家。',
+          pos: x.pos, signal: true, ending: () => 'alt_exit',
+          line: '顺光上浮——头顶不是进来的那口天窗，是另一个洞口。岸上静悄悄的，没人接应。',
         });
       } else if (p.onLand && d < x.r) {
         this._exitSpot = x;
@@ -602,7 +620,9 @@ export class DiveSession {
     if (atExit && this._t > 30) {
       if (this.exitT < 0) { this.exitT = 0; this.talk(this._ocean ? '潜水船就在头顶。做完停留再上。' : this._ice ? '冰洞的亮光在头顶。做完停留再上去。' : '出口的蓝光在头顶。做完停留再上去。'); }
       this.exitT += dt;
-      if (this.exitT > 3) return this._startSurfacing({ pos: this.cave.entryPos });
+      // 洞潜出口是野外天坑：没人接应，出水后要自己发信号；海潜有船、冰潜有保障组、教学有教练——出水即收尾
+      if (this.exitT > 3) return this._startSurfacing(this._ocean || this._ice || this.lesson ? { pos: this.cave.entryPos }
+        : { pos: this.cave.entryPos, signal: true, line: '扒着坑边的石头爬出水面——树冠、鸟叫、太阳晃眼。岸上静悄悄的，没人在这儿等。' });
     } else this.exitT = -1;
 
     // —— 海面失联（海潜）：船看得见船边十米和橙色浮标，看不见浪尖上的一颗脑袋 ——
@@ -840,10 +860,10 @@ export class DiveSession {
     this.cave.group.visible = false;          // 水下世界的岩壳会包住站位——出水后只留水面世界
     for (const sf of this.cave.surfaces) sf.visible = false;
     this.surfaced = {
-      t: 0, kind: world.kind, far: !!exitDef.far,
+      t: 0, kind: world.kind, far: !!exitDef.far, signal: !!exitDef.signal,
       from: this.player.pos.clone(), to: world.standPos,
       yaw: world.face ?? this.player.yaw, pitch: 0.18,
-      wait: exitDef.wait ?? 7,
+      wait: exitDef.wait ?? 7, signaled: 0, signalT: 0,
       ending: exitDef.ending || (() => this._exitEnding()),
       world,
     };

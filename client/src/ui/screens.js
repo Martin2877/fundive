@@ -111,15 +111,29 @@ export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio
 
   const list = scr.querySelector('#maplist');
   const track = scr.querySelector('#cartrack');
+  const view = scr.querySelector('#carview');
+  // 轮播位移用实测像素居中对齐：卡片/间距在不同断点下宽度不同，
+  // 让激活卡始终居中、两侧各露出一段邻卡（非激活卡 CSS 侧做模糊+缩淡）
+  let carT = 0;
+  const applyCar = () => {
+    const card = track.children[DISCS.findIndex(d => d.id === disc)];
+    if (!card) return;
+    const vr = view.getBoundingClientRect(), cr = card.getBoundingClientRect();
+    carT += (vr.left + vr.width / 2) - (cr.left + cr.width / 2);
+    track.style.transform = `translateX(${carT}px)`;
+  };
+  const carRO = new ResizeObserver(() => { if (!scr.isConnected) carRO.disconnect(); else applyCar(); });
+  carRO.observe(view);
   const dots = [...scr.querySelectorAll('#cardots button')];
   const render = () => {
     const isTrain = disc === 'train';
     const idx = DISCS.findIndex(d => d.id === disc);
-    track.style.transform = `translateX(-${idx * 100}%)`;
+    applyCar();
     dots.forEach((x, i) => x.classList.toggle('on', i === idx));
     scr.querySelectorAll('.dc[data-d]').forEach(x => x.classList.toggle('on', x.dataset.d === disc));
     scr.querySelector('#trainbox').hidden = !isTrain;
-    scr.querySelector('#unibox').hidden = isTrain;
+    // unibox 用 visibility 隐藏而不是 display:none——保住占位，切分区时面板高度不跳
+    scr.querySelector('#unibox').style.visibility = isTrain ? 'hidden' : '';
     scr.querySelector('#unimore').hidden = isTrain || scr.querySelector('#unimore').hidden;
     list.hidden = isTrain;
     scr.querySelector('#solo').hidden = isTrain;
@@ -151,6 +165,9 @@ export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio
   const setDisc = (d) => {
     if (d === disc) return;   // 同卡再点：不换图不重渲染，更别重建背景世界
     disc = d;
+    // 换分区时收起展开项——任何一处展开都会改变面板高度，切换必须零位移
+    const um = scr.querySelector('#unimore');
+    if (!um.hidden) { um.hidden = true; const u = scr.querySelector('#utog'); u.setAttribute('aria-expanded', 'false'); u.textContent = t('宇宙') + ' ▾'; }
     if (disc !== 'train') mapId = mapsOf(disc).some(m => m.id === perMap[disc]) ? perMap[disc] : mapsOf(disc)[0].id;
     save(); render(); preview();
   };
@@ -164,7 +181,6 @@ export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio
     if (e.key === 'ArrowRight') { step(1); e.preventDefault(); }
   };
   // 触屏滑动切卡
-  const view = scr.querySelector('#carview');
   let swX = null;
   view.addEventListener('pointerdown', (e) => { swX = e.clientX; });
   view.addEventListener('pointerup', (e) => {
@@ -347,6 +363,7 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onBack }) {
       </div>
       <div class="sub" style="font-size:11.5px;margin:2px 0 6px">${t('折返气压：气压降到这条线就该掉头，HUD 气量条上有橙色标记。计划深度：超过它 2 米会提醒你回头，HUD 上也会显示。深度越大，氮醉和减压压力越大。')}</div>
       <div class="sub" id="kit" style="font-size:12.5px;line-height:2;margin:10px 0"></div>
+      ${(map.kind || 'cave') === 'cave' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：回入口天坑浮出水面——岸上没人接应，挥手（3）或吹哨呼喊（E）让他们找到你；水面上按 W 随时潜回去。')}</div>` : ''}
       ${map.kind === 'ocean' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：回到潜水船 10 米内浮出水面即撤离成功；离船太远就先在水下 3 米以下放浮标（C），船会来找浮标。')}</div>` : ''}
       ${map.kind === 'ice' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：头顶只有冰——沿安全绳回冰洞，从下来的那个洞出水。')}</div>` : ''}
       ${(map.hazards?.narcosis || 0) >= 0.8 ? `<div class="sub" style="margin:6px 0;font-size:12px;color:#ffd27f">${t(map.kind === 'ocean' ? '深潜须知：下去多快都行，上来必须慢——按 G 抓住锚绳，它会把你的爬升压在安全速度；深处找到就走，氮醉和氧中毒都在计时。' : '深潜须知：下去多快都行，上来必须慢——按 G 抓住引绳，它会把你的爬升压在安全速度；井底找到就走，氮醉和氧中毒都在计时。')}</div>` : ''}

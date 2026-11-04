@@ -12,6 +12,8 @@ import { makeSurface } from './water.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _d = new THREE.Vector3(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _n = new THREE.Vector3(), _b = new THREE.Vector3();
+// _segClosest 专用：closest/insideOther/clamp 会在外部代码持有 _v/_v2 期间被调用，绝不能复用共享临时向量
+const _sv = new THREE.Vector3(), _sv2 = new THREE.Vector3();
 
 // ---------- 几何累加器 ----------
 class GeomAcc {
@@ -116,8 +118,8 @@ export class NavField {
     });
   }
   _segClosest(sg, pos, out) {
-    const ab = _v.subVectors(sg.b.p, sg.a.p);
-    const t = Math.max(0, Math.min(1, _v2.subVectors(pos, sg.a.p).dot(ab) / (ab.lengthSq() || 1e-6)));
+    const ab = _sv.subVectors(sg.b.p, sg.a.p);
+    const t = Math.max(0, Math.min(1, _sv2.subVectors(pos, sg.a.p).dot(ab) / (ab.lengthSq() || 1e-6)));
     out.p.copy(sg.a.p).addScaledVector(ab, t);
     out.r = sg.a.r + (sg.b.r - sg.a.r) * t;
     out.s = sg.a.s + (sg.b.s - sg.a.s) * t;

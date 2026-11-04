@@ -46,6 +46,10 @@ for (const map of MAPS.filter(m => m.kind !== 'ocean')) {
     ok(cave.linePts.length > 10, `${map.id} 引导绳 ${cave.linePts.length} 点`);
     // 5) 目标点有坐标
     ok(cave.objectiveSpot.pos.length() > 0, `${map.id} 目标点 ${cave.objectiveSpot.name || '主通道'}`);
+    // 5b) 碰撞段长度合理：岩盖延伸段 ≈1.1×壁半径，普通 spine 段 ≈STEP；
+    //     若出现远超半径的长段，说明放样顶点被共享向量串扰（曾导致巨型横穿石板+失控岩盖）
+    const maxSeg = Math.max(...cave.nav.segs.map(s => s.b.p.distanceTo(s.a.p) / Math.max(1, s.a.r)));
+    ok(maxSeg < 3, `${map.id} 碰撞段长径比 ${maxSeg.toFixed(2)} < 3`);
     // 6) 节点映射完整
     ok(cave.nodes.every(n => Number.isInteger(n.sample)), `${map.id} 节点->spine 映射`);
   }
