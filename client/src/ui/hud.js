@@ -169,12 +169,19 @@ export class HUD {
     } else cmp.hidden = true;
   }
 
-  // Tab 一键唤出/收起键位表
+  // Tab（触屏为「键位」钮）一键唤出/收起键位表
   toggleKeys() {
     if (!this._keys) {
+      const touch = matchMedia('(pointer: coarse)').matches;
       const d = document.createElement('div');
       d.id = 'keys';
-      d.innerHTML = `<div class="kb">
+      d.innerHTML = touch ? `<div class="kb">
+        <div class="k">${t('键位表 · 点「键位」收起')}</div>
+        <div class="kg"><b>${t('游动')}</b><span>${t('左半屏落指出摇杆游动 · 右半屏拖动转视角 · 快踢=搅沙快踢 · 蛙踢=安静不搅沙(再点关) · 充气/放气=BCD浮力')}</span></div>
+        <div class="kg"><b>${t('装备')}</b><span>${t('常驻区：拍照 · 互动 · 抓绳/挂钩 · 灯。「装备」抽屉里：面镜摘戴 · 二级头 · 备用二级头 · 浮标(海潜) · CCR · 压面镜上沿 · 鼻吐气 · 捏鼻 · 吸气/呼气(手动模式)')}</span></div>
+        <div class="kg"><b>${t('手势')}</b><span>${t('抽屉底排：OK · 撤 · 求助 · 指绳 · 灯信号')}</span></div>
+        <div class="kg"><b>${t('其他')}</b><span>${t('组合技：同时按住 压沿+鼻吐 = 面镜排水 · 捏鼻+鼻吐 = 耳压平衡')}</span></div>
+      </div>` : `<div class="kb">
         <div class="k">${t('键位表 · Tab 收起')}</div>
         <div class="kg"><b>${t('游动')}</b><span>${t('W/A/S/D 游动 · 空格 快踢(搅沙) · K 蛙踢 · Shift 稳速 · 鼠标 视角')}</span></div>
         <div class="kg"><b>${t('装备')}</b><span>${t('M 面镜摘/戴 · H 压面镜上沿 · N 鼻子吐气 · X 捏鼻 · R 二级头拿开/含回 · Q 备用二级头 · B/V BCD充气/放气 · L 主灯 · O CCR氧电池 · F 相机 · E 互动 · G 抓引绳/挂钩 · C 浮标(海潜) · I/U 吸气/呼气(手动模式)')}</span></div>

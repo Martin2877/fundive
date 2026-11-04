@@ -49,6 +49,13 @@ input[type=text]:focus{outline:none;border-color:var(--lagoon)}
 .m-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:6px}
 .m-head .title{margin-top:6px}
 .m-sys{display:flex;gap:8px;padding-top:10px;flex-shrink:0}
+.gh-ic{padding:6px 10px;text-decoration:none;color:var(--dim)}
+.gh-ic:hover{color:var(--lagoon)}
+/* 关于区里的项目/反馈链接 */
+.m-links{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.mlink{display:inline-flex;align-items:center;gap:6px;font-size:12px;letter-spacing:.08em;color:var(--lagoon);border:1px solid rgba(127,233,234,.3);border-radius:999px;padding:5px 14px;text-decoration:none;transition:border-color .2s}
+.mlink:hover{border-color:var(--lagoon)}
+.mlink svg{flex-shrink:0}
 /* —— 主菜单：大分区卡片轮播（一次一张，邻卡只露边缘） —— */
 .car{position:relative;margin:8px 0 2px}
 .car-view{overflow:hidden;border-radius:18px}
@@ -147,12 +154,28 @@ body.diving #mask{opacity:1}
 #finder .cross:after{top:50%;left:0;height:1.5px;width:100%;transform:translateY(-50%)}
 #finder .meta{position:absolute;bottom:10%;left:50%;transform:translateX(-50%);font-size:12px;letter-spacing:.2em;color:var(--ink)}
 #finder .film{position:absolute;top:12%;right:21.5%;font-size:11px;letter-spacing:.2em;color:var(--dim)}
-/* 触屏控制 */
-#touch{position:fixed;inset:0;pointer-events:none;z-index:7}
-#stick{position:absolute;left:26px;bottom:90px;width:110px;height:110px;border-radius:50%;border:1.5px solid var(--line);background:rgba(2,10,12,.3);pointer-events:auto}
-#stick .nub{position:absolute;left:50%;top:50%;width:44px;height:44px;border-radius:50%;background:rgba(127,233,234,.25);border:1px solid var(--lagoon);transform:translate(-50%,-50%)}
-.tbtn{position:absolute;width:62px;height:62px;border-radius:50%;border:1.5px solid var(--line);background:rgba(2,10,12,.45);color:var(--ink);font-size:11px;letter-spacing:.1em;pointer-events:auto;display:grid;place-items:center}
-.tbtn:active{background:rgba(127,233,234,.3)}
+/* 触屏控制：只在潜水中出现（body.diving），菜单里不露头 */
+#touch{position:fixed;inset:0;pointer-events:none;z-index:7;display:none}
+body.diving #touch{display:block}
+/* 浮动摇杆：视觉件不拦截触摸，左半屏落指它就移到指下 */
+#stick{position:absolute;left:112px;bottom:150px;width:112px;height:112px;margin:-56px 0 0 -56px;border-radius:50%;border:1.5px solid var(--line);background:rgba(2,10,12,.3)}
+#stick .nub{position:absolute;left:50%;top:50%;width:46px;height:46px;border-radius:50%;background:rgba(127,233,234,.25);border:1px solid var(--lagoon);transform:translate(-50%,-50%)}
+/* 常驻 3×3 按钮区：右下拇指位 */
+#tcluster{position:absolute;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(3,56px);grid-auto-rows:56px;gap:9px}
+.tbtn{position:relative;width:56px;height:56px;border-radius:50%;border:1.5px solid var(--line);background:rgba(2,10,12,.5);color:var(--ink);font-size:10.5px;letter-spacing:.04em;pointer-events:auto;display:grid;place-items:center;align-content:center;line-height:1.2;touch-action:none;-webkit-tap-highlight-color:transparent}
+.tbtn small{font-size:8px;color:var(--dim);letter-spacing:.05em}
+.tbtn.on,.tbtn:active{background:rgba(127,233,234,.3);border-color:var(--lagoon)}
+/* 暂停/键位：右缘中部，避开四角仪表 */
+.tbtn.side{position:absolute;right:12px;width:44px;height:44px;font-size:10px}
+.tbtn.side.s1{top:38%}
+.tbtn.side.s2{top:calc(38% + 54px)}
+/* 「装备」抽屉：次要装备/手法/手势全收进来，底部上滑面板 */
+#tsheet{position:absolute;left:0;right:0;bottom:0;pointer-events:auto;background:rgba(2,10,12,.85);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-top:1px solid var(--line);border-radius:16px 16px 0 0;padding:8px 14px calc(10px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .22s ease;max-height:62vh;overflow-y:auto}
+#tsheet.open{transform:translateY(0)}
+.ts-cap{font-size:9.5px;letter-spacing:.3em;color:var(--dim);margin:7px 0 5px}
+.ts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:8px}
+#tsheet .tbtn{width:auto;height:48px;border-radius:12px}
+#tsheet .gest .tbtn{border-radius:50%}
 /* 计划/结算表格 */
 .plan-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
 .plan-grid .cell{border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center}
@@ -272,6 +295,34 @@ body.diving #mask{opacity:1}
   .dc{flex-basis:72%;margin:0 2%}
   .m-head{flex-direction:column;gap:6px}
   .m-sys{padding-top:0}
+}
+/* —— 触屏设备：视野优先 + HUD/控件互不遮挡 —— */
+@media (pointer:coarse){
+  /* 小屏手机不画面镜框——屏幕本来就小，黑框再吃一圈什么都看不见 */
+  #avatar{display:none}
+  /* 引绳/负重面板从右下挪到右上气量表下方（右下让给按钮区） */
+  #hud .br{right:12px;bottom:auto;top:150px}
+  /* 联机消息挪到左上深度表下方（左下是摇杆位） */
+  #chatlog{left:14px;bottom:auto;top:150px}
+  /* 底部中央文案抬到按钮区上方，免得被按钮盖住 */
+  #hud #lineinfo{bottom:216px}
+  #hud #hint{bottom:250px}
+}
+@media (pointer:coarse) and (max-width:760px), (pointer:coarse) and (max-height:480px){
+  body.diving #mask{opacity:0}
+}
+/* 横屏矮屏：按钮区整体缩小，HUD 收紧 */
+@media (pointer:coarse) and (max-height:480px){
+  #tcluster{transform:scale(.78);transform-origin:bottom right}
+  .tbtn.side.s1{top:30%}
+  .tbtn.side.s2{top:calc(30% + 50px)}
+  /* 右缘留给暂停/键位——引绳面板挪到左上深度表下方 */
+  #hud .br{left:12px;right:auto;top:118px;text-align:left}
+  #hud .br .panel{justify-items:start}
+  #chatlog{top:186px}
+  #hud .panel{padding:5px 10px}
+  #hud #lineinfo{bottom:170px}
+  #hud #hint{bottom:185px}
 }
 </style>
 </head>

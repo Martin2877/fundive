@@ -199,6 +199,7 @@ function startTraining(cid, lid) {
     },
   });
   if (!input.isTouch) hud.hint('点一下画面锁定鼠标 · Tab 键位表 · 听教练的', 5);
+  else hud.hint('教练让按的键都在屏上——右下区 + 「装备」抽屉 · 听教练的', 5);
   session.start();
 }
 
@@ -240,9 +241,10 @@ function startDive({ mapId, seed, plan: pl, solo, netPlayers }) {
   });
   photos.film = 24;
   photos.shots = [];
-  // 非触屏时提示锁定鼠标
+  // 非触屏时提示锁定鼠标；触屏给一套操作提示
   const _k = getMap(mapId).kind;
   if (!input.isTouch) hud.hint(_k === 'ocean' ? '点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓锚绳 · C 浮标' : _k === 'ice' ? '点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓安全绳' : '点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓引绳', 5);
+  else hud.hint(_k === 'ocean' ? '左半屏摇杆游动 · 右半屏转视角 · 「装备」里有浮标/手势' : '左半屏摇杆游动 · 右半屏转视角 · 次要动作在「装备」抽屉', 5);
   session.start();
 }
 
@@ -287,6 +289,7 @@ function gallery(back) {
 
 function cleanupSession() {
   document.body.classList.remove('diving');
+  input.resetTouch?.();
   if (session) { session.dispose(); session = null; }
   pauseEl?.remove(); pauseEl = null;
   hud.hide();

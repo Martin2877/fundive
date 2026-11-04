@@ -50,7 +50,8 @@ export class DiveSession {
     this._ffT = this._scheduleFreeflow();
     this._buildWorld();
     this._bindNet();
-    this.avatar = new BodyAvatar({ gear: opts.gear });
+    // 触屏不建体感小人：小屏没地方放，还白养一个 WebGL 上下文
+    this.avatar = opts.input.isTouch ? null : new BodyAvatar({ gear: opts.gear });
     this._maskEl = document.getElementById('mask');
     this.hand = new DiveHand(this.camera);
     this.composer = makeComposer(opts.renderer, this.scene, this.camera);
@@ -264,9 +265,10 @@ export class DiveSession {
         this.talk('你深吸一口，又潜回水里。');
         return;
       }
-      if (sf.signal && !sf.signaled) hud.hint('这里没人接应——按 3 挥手 / 按 E 吹哨呼喊；按 W 潜回水里', 0.4);
-      else if (!sf.far && !p.regOut) hud.hint('按 R 摘下二级头省气；按 W 潜回水里', 0.4);
-      else if (!sf.far) hud.hint('按 W 潜回水里', 0.4);
+      const tc = input.isTouch;
+      if (sf.signal && !sf.signaled) hud.hint(tc ? '这里没人接应——「装备」抽屉里点 3 挥手 / 互动键吹哨；摇杆前推潜回' : '这里没人接应——按 3 挥手 / 按 E 吹哨呼喊；按 W 潜回水里', 0.4);
+      else if (!sf.far && !p.regOut) hud.hint(tc ? '「装备」抽屉里点 R 摘下二级头省气；摇杆前推潜回' : '按 R 摘下二级头省气；按 W 潜回水里', 0.4);
+      else if (!sf.far) hud.hint(tc ? '摇杆前推潜回水里' : '按 W 潜回水里', 0.4);
       // 漂远了出水：接应/漂流逻辑继续走
       if (sf.far) {
         if (this.smb) {
@@ -783,7 +785,7 @@ export class DiveSession {
     const seg = this._nearestLineSeg();
     if (seg && seg.d < 1.4) {
       this.lineHold = true;
-      this.o.hud.hint(tr('抓住了{lw}。松开方向键，顺绳回升。', { lw: this._lineWord }));
+      this.o.hud.hint(this.o.input.isTouch ? tr('抓住了{lw}。松开摇杆，顺绳回升。', { lw: this._lineWord }) : tr('抓住了{lw}。松开方向键，顺绳回升。', { lw: this._lineWord }));
     } else this.o.hud.hint(tr('够不到{lw}', { lw: this._lineWord }));
   }
 
