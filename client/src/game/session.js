@@ -644,6 +644,20 @@ export class DiveSession {
     if (p.decoOwed > 5 && p.depth() < 8) warnGate('deco', 12, '电脑表在叫：你欠着减压停留，回 5 米停够再走。');
     if (p.wedged) warnGate('stuck', 5, '卡住了——别再顶，收手收腿，慢慢往后退。');
     else if (p.inCrack) warnGate('crack', 14, '窄缝——侧身慢过。感觉顶住就先退出来，别硬挤。');
+    // —— 教练回声：上过的课在水里变成肌肉记忆；没上过的，提示回去补课 ——
+    if (!this.lesson) {
+      if (!this._echo) this._echo = new Set();
+      const echo = (k, txt) => { if (!this._echo.has(k)) { this._echo.add(k); this.talk(txt); } };
+      const trained = (cid, lid) => (store.data.courses?.[cid]?.[lid]?.stars || 0) > 0;
+      if (p.inCrack) echo('crack', trained('mil', 'mil_crack') ? '教官的话在耳边：窄缝不吃快——顶住就退。' : '前面是条窄缝——感觉顶住马上退，别硬挤。（战术课的"窄缝自知"练过这个）');
+      if (siltD > 0.45 && deep) echo('silt', trained('aow', 'aow_frog') ? '泥沙区——AOW 的肌肉记忆：收腿蛙踢，沙不扬。' : '泥沙糊住了——收腿蛙踢，别搅。（AOW 有蛙踢课）');
+      if (this._ice && this.cold > 0.32) echo('cold', trained('mil', 'mil_frost') ? '寒区课的纪律：手指僵之前，先往绳靠。' : '手指开始麻了——失温不等人，该计划回程了。（战术课有寒区处置）');
+      if (p.freeflow > 0) echo('freeflow', trained('mil', 'mil_frost') ? '自由流——Q 换备头，冰潜课练过这个。' : '二级头跑气了——按 Q 换备用头！');
+      if (!p.lightOn && !p.backupOn && deep) echo('dark', trained('mil', 'mil_dark') ? '灯没了——Q 备灯。战术课练过。' : '主灯不亮——按 Q 切备用灯。（黑暗冗余课讲过）');
+      if (this.lineBroken && !p.onLine && p.lineDist > 8) echo('line', trained('mil', 'mil_line') ? '引绳断了——停住别乱摸，先找回线头。' : '引绳断了——别乱游，找回线头或者原路回。（引绳纪律课讲过）');
+      if (p.inCurrent) echo('flow', '水流在推你——别硬顶，顺流或者按 G 挂钩稳住。');
+      if (p.inAir && !p.domeBad) echo('pocket', '气室里摘二级头前想一想：有的气室，气是不能呼吸的。');
+    }
     if (p.gas < (this.o.plan?.turnGas || 140)) warnOnce('gas2', '到折返气压了——按计划该回头了。');
     if (this.o.plan?.planDepth && p.depth() > this.o.plan.planDepth + 2) warnOnce('overplan', '已经超过计划深度了——按计划，该回头了。');
     // —— 气室 / 支洞 ——

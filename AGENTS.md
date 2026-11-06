@@ -94,7 +94,11 @@ session.js 每 0.5s 采样轨迹 `[t,x,y,z,gas,ascRate]` 并把 talk/emit 事件
 
 主菜单「教学课程」-> 课程表 -> 下水考核。课节=步骤序列，每步一个 check
 （key/hold/combo/mask/maskwater/depth/reach/deploy/gesture/rand_gesture/buddy/
-ccr/ascend/photo/exit/wait/say/lightoff），见 courses.js 注释。
+ccr/ascend/photo/exit/wait/say/lightoff/linehold/squeeze/pocket），见 courses.js 注释。
+步骤可带 `fire:'freeflow'|'blackout'` 定点注入事故；`exit` 可带 `gas` 要求最低气压；
+战术课(mil)用真实地图(dosojos/icelake/harbor)教学，剧情旁白在课内静音，
+真图里会按已修课程触发"教练回声"提示（session._echo）。课节可带 `debrief` 结课点评。
+e2e 战术课探针：`node scripts/milprobe.mjs --url=http://localhost:5173`。
 新键位：M 面镜 · H 压上沿 · N 鼻吐气 · X 捏鼻 · R 二级头 · B/V BCD · K 蛙踢 ·
 O CCR · Tab 键位表。教学地图 pool/harbor 带 hidden 标记不进选图。
 e2e：`node scripts/e2e_train.mjs --url=http://localhost:5173`（需先 npm run dev）。

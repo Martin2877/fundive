@@ -20,11 +20,12 @@ export class TrainingSession extends DiveSession {
     this.lesson = lesson;
     this.ccr = !!lesson.ccr;
 
-    // 平静水域：关掉随机事故；世界本体照旧生成
+    // 平静水域：关掉随机事故；世界本体照旧生成（演练事故由步骤 fire 定点注入）
     this.uni.mods.freeflow = this.uni.mods.blackout = this.uni.mods.lineBreak = false;
     this.uni.mods.hallucination = 0;
     this._ffT = -1;
     this.cave.lineGap = null;
+    this._beats = [];              // 真实地图上的课：剧情旁白退场，只留教练
 
     // 捕获每帧采样输入（含 presses/releases），给考核引擎用
     const inp = this.o.input, orig = inp.sample.bind(inp);
@@ -172,11 +173,15 @@ class Trainer {
     if (!st) return;
     st.t = 0; st.prog = 0; st.mistakes = 0;
     st.need = st.check.t === 'ccr' ? st.check.n : st.check.t === 'rand_gesture' ? st.check.n : 0;
-    st.got = 0; st.evt = null; st.expo = 0; st.warnT = 0; st._fastT = 0;
+    st.got = 0; st.evt = null; st.expo = 0; st.warnT = 0; st._fastT = 0; st.phase = 0;
     if (st.teach) { const sp = SPECIES[st.teach]; this.s.talk(`${t(sp.name)}（${sp.en}）—— ${t(sp.desc)}  ${t('识别要点：')}${t(sp.tip)}`, 9); }
     else if (st.coach) this.s.talk(t('教练：') + t(st.coach));
-    if (st.check.t === 'reach' || st.check.t === 'deploy') this._placeMarker(st.check);
+    if (st.check.t === 'squeeze') st.check.pos = this.s.cave.squeezes?.find(q => q.hard)?.pos || null;
+    if (st.check.t === 'reach' || st.check.t === 'deploy' || st.check.t === 'squeeze') this._placeMarker(st.check);
     else this.marker.visible = false;
+    // 事故注入：这一步开始就来真的（自由流嘶声 / 主灯三秒后灭）
+    if (st.fire === 'freeflow') this.p.triggerFreeflow(this.s.o.audio);
+    if (st.fire === 'blackout') this.p.blackoutT = 3;
     if (st.check.t === 'deploy') this._placeDevice(st.check.node);
     // 手势步骤：教练先示范一遍给你看
     if (st.check.t === 'gesture' && this.s.buddy) {
@@ -279,9 +284,10 @@ class Trainer {
   }
 
   _placeMarker(c) {
-    const n = this.s.cave.nodes[c.node];
-    if (!n) return;
-    this.marker.position.copy(n.pos);
+    const n = c.node != null ? this.s.cave.nodes[c.node] : null;
+    const pos = n ? n.pos : c.pos;
+    if (!pos) return;
+    this.marker.position.copy(pos);
     if (c.dark) { this._markLight.color.set(0x59ffa0); this._markLight.intensity = 1.1; this._markDot.material.color.set(0x59ffa0); }
     else { this._markLight.color.set(0x7fe9ea); this._markLight.intensity = 2.5; this._markDot.material.color.set(0x7fe9ea); }
     this.marker.visible = true;
@@ -415,7 +421,17 @@ class Trainer {
         break;
       }
       case 'lightoff': if (!p.lightOn && !p.backupOn) this._complete(); break;
-      case 'exit': if (this.s._ctx().atExit) this._complete(); break;
+      case 'exit': if (this.s._ctx().atExit && (!c.gas || p.gas >= c.gas)) this._complete(); break;
+      case 'linehold': st.prog = this.s.lineHold ? 1 : 0; if (this.s.lineHold) this._complete(); break;
+      case 'squeeze': {
+        // 钻进死缝（inCrack.hard）再干净退出来；被咬住 = 记失误，但还能退
+        const sq = p.inCrack;
+        if (st.phase === 1 && !sq && !p.wedged) this._complete();
+        else if (sq?.hard && st.phase !== 1) { st.phase = 1; st.prog = 0.5; }
+        if (p.wedged && st.warnT <= 0) { st.warnT = 2.5; this._mistake('被咬住了——松手慢退'); }
+        break;
+      }
+      case 'pocket': if (p.inAir) this._complete(); break;
       case 'pickup': break;          // 由 onSurfaceEvent 完成
     }
 
@@ -452,7 +468,7 @@ class Trainer {
       kind: 'lesson',
       courseId: this.courseId(), lessonId: this.lesson.id, name: this.lesson.name,
       score, stars, grade, mistakes: this.mistakes, time: Math.floor(this.t),
-      records: this.records, map: this.lesson.map,
+      records: this.records, map: this.lesson.map, debrief: this.lesson.debrief,
     });
   }
 
@@ -529,7 +545,10 @@ class Trainer {
     else if (c.t === 'gesture') live.push(t('打手势「{g}」—— 按 {k}', { g: t(GESTURE_NAME[c.want]), k: GESTURE_KEYS[c.want] }));
     else if (c.t === 'rand_gesture' && st.evt) live.push(t('回应窗口 {s}s · 已答 {g}/{n}', { s: Math.max(0, 9 - st.t).toFixed(0), g: st.got, n: st.need }));
     else if (c.t === 'key') live.push(t('点按 {k}', { k: st.key ? t(st.key) : c.code }));
-    else if (c.t === 'exit') live.push(t('游回入口上水面'));
+    else if (c.t === 'exit') live.push(t(c.gas ? '游回入口上水面（气压 ≥{n}bar）' : '游回入口上水面', { n: c.gas }));
+    else if (c.t === 'linehold') live.push(t('按 G 抓住引绳悬停'));
+    else if (c.t === 'squeeze') live.push(t(st.phase ? '顶住就别挤了——慢退出来' : '找到窄缝，慢慢往里探'));
+    else if (c.t === 'pocket') live.push(t('把头探出水面——进气室'));
     else if (c.t === 'pickup') live.push(t('升出水面——船会跟着你的浮标来找你'));
     else if (c.t === 'mask') live.push(t(c.on ? '按 M 戴回面镜' : '按 M 摘下面镜'));
     else if (c.t === 'photo') live.push(t('F 开取景器再按 F 拍 —— 要 ≥{n}★', { n: c.min }));
@@ -542,7 +561,7 @@ class Trainer {
     else if (c.t === 'depth') frac = Math.min(1, (st.prog || 0) / c.hold);
     else if (c.t === 'wait' || c.t === 'say') frac = Math.min(1, st.t / (c.s || c.dur));
     else if (c.t === 'maskwater') frac = st.prog || 0;
-    else if (c.t === 'reach' || c.t === 'buddy' || c.t === 'ascend' || c.t === 'rand_gesture' || c.t === 'ccr') frac = st.prog || 0;
+    else if (c.t === 'reach' || c.t === 'buddy' || c.t === 'ascend' || c.t === 'rand_gesture' || c.t === 'ccr' || c.t === 'squeeze' || c.t === 'linehold') frac = st.prog || 0;
     else if (st.timeout) frac = Math.max(0, 1 - st.t / st.timeout) * 0.15; // 仅提示有倒计时
     $('#t-bar').style.width = (frac * 100).toFixed(0) + '%';
     const po2 = $('#t-po2');

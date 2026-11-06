@@ -377,6 +377,18 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onBack }) {
       ${map.kind === 'ocean' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：回到潜水船 10 米内浮出水面即撤离成功；离船太远就先在水下 3 米以下放浮标（C），船会来找浮标。')}</div>` : ''}
       ${map.kind === 'ice' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：头顶只有冰——沿安全绳回冰洞，从下来的那个洞出水。')}</div>` : ''}
       ${(map.hazards?.narcosis || 0) >= 0.8 ? `<div class="sub" style="margin:6px 0;font-size:12px;color:#ffd27f">${t(map.kind === 'ocean' ? '深潜须知：下去多快都行，上来必须慢——按 G 抓住锚绳，它会把你的爬升压在安全速度；深处找到就走，氮醉和氧中毒都在计时。' : '深潜须知：下去多快都行，上来必须慢——按 G 抓住引绳，它会把你的爬升压在安全速度；井底找到就走，氮醉和氧中毒都在计时。')}</div>` : ''}
+      ${(() => {
+        const SKILLS = {
+          cave: [['mil', 'mil_line', '引绳纪律'], ['mil', 'mil_crack', '窄缝自知'], ['aow', 'aow_frog', '蛙踢'], ['mil', 'mil_dark', '黑暗冗余']],
+          ocean: [['ocn', 'ocn_smb', '浮标接应'], ['ocn', 'ocn_entry', '锚绳下潜'], ['mil', 'mil_dark', '黑暗冗余'], ['aow', 'aow_frog', '蛙踢']],
+          ice: [['mil', 'mil_frost', '寒区处置'], ['mil', 'mil_line', '引绳纪律'], ['mil', 'mil_dark', '黑暗冗余']],
+        }[(map.kind || 'cave')] || [];
+        const chips = SKILLS.map(([cid, lid, name]) => {
+          const done = (store.data.courses?.[cid]?.[lid]?.stars || 0) > 0;
+          return `<span style="font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid ${done ? 'var(--lagoon)' : 'var(--dim)'};color:${done ? 'var(--lagoon)' : 'var(--dim)'}">${done ? '✓ ' : ''}${t(name)}</span>`;
+        }).join(' ');
+        return `<div class="sub" style="margin:6px 0;font-size:12px">${t('这张图用得上的课：')}${chips}</div>`;
+      })()}
       <div class="row" style="margin-top:8px">
         <button class="btn primary" id="dive">${t('按计划下水')}</button>
         <button class="btn" id="whim" title="${t('不做计划：折返线很低、深度不设限——更刺激，也更危险')}">${t('临时起意')}</button>
@@ -564,8 +576,9 @@ export function showCourses({ onLesson, onBack }) {
     const ll = card.querySelector('.c-lessons');
     c.lessons.forEach((l, i) => {
       const g = prog[c.id]?.[l.id];
+      const lm = MAPS.find(m => m.id === l.map);
       const b = el(`<button class="lesson${g ? ' done' : ''}">
-        <span class="ln">${String(i + 1).padStart(2, '0')} · ${t(l.name)}</span>
+        <span class="ln">${String(i + 1).padStart(2, '0')} · ${t(l.name)}${lm ? `<small style="opacity:.55;font-size:11px;margin-left:8px">${t('地点：')}${mapName(lm)}</small>` : ''}</span>
         <span class="ls">${g ? '★'.repeat(g.stars) + ' · ' + t('{n}分', { n: g.score }) : t('未考')}</span>
         <span class="ld">${t(l.brief)}</span></button>`);
       b.onclick = () => onLesson(c.id, l.id);
@@ -588,6 +601,7 @@ export function showLessonResult(r, { onRetry, onNext, onList }) {
         <h2>${r.stars ? '★'.repeat(r.stars) + ' ' + t('{n} 分', { n: r.score }) : t('不合格')}</h2></div>
         <div class="bd">
           ${t('教练评语：')}${t(r.grade)}
+          ${r.debrief ? `<div class="hint" style="margin-top:6px">${t(r.debrief)}</div>` : ''}
           <div class="hint">${t('用时 {t} · 失误 {m} 次', { t: mmss(r.time), m: r.mistakes })}</div>
         </div>
       </div>
