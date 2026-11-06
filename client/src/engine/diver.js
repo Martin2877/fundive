@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { makeHand, poseHand, GESTURE_POSE } from './hand.js';
 
-export function makeDiver({ suit = 0x1c2733, trim = 0x7fe9ea, name = null, lightColor = 0xfff2d8, victim = false, sidemount = false, arm = false } = {}) {
+export function makeDiver({ suit = 0x1c2733, trim = 0x7fe9ea, name = null, lightColor = 0xfff2d8, victim = false, sidemount = false, arm = false, beam = false } = {}) {
   const g = new THREE.Group();
   const suitMat = new THREE.MeshStandardMaterial({ color: suit, roughness: 0.85 });
   const trimMat = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.6 });
@@ -144,18 +144,22 @@ export function makeDiver({ suit = 0x1c2733, trim = 0x7fe9ea, name = null, light
   torch.rotation.x = Math.PI / 2;
   torch.position.set(0.22, 0, -0.35);
   g.add(torch);
-  const light = new THREE.SpotLight(lightColor, victim ? 2 : 14, victim ? 8 : 24, 0.42, 0.45, 1.1);
+  const light = new THREE.SpotLight(lightColor, victim ? 2 : 9, victim ? 8 : 18, 0.42, 0.45, 1.1);
   light.position.set(0.22, 0, -0.35);
   const lightTarget = new THREE.Object3D();
   lightTarget.position.set(0, 0, -6);
   g.add(light, lightTarget);
   light.target = lightTarget;
-  // 灯光锥（假的体积光）
-  const coneMat = new THREE.MeshBasicMaterial({ color: lightColor, transparent: true, opacity: victim ? 0.03 : 0.05, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(1.4, 5.5, 12, 1, true), coneMat);
-  cone.rotation.x = Math.PI / 2;
-  cone.position.set(0.22, 0, -3.1);
-  g.add(cone);
+  // 灯光锥（假的体积光结构体）——默认不要：AI潜伴/联机队友的灯只要真把墙和生物照亮，
+  // 这截透明光锥糊在玩家视野里只会挡视线。beam:true 只留给体感小人（它在独立小视窗里）。
+  let cone = null;
+  if (beam) {
+    const coneMat = new THREE.MeshBasicMaterial({ color: lightColor, transparent: true, opacity: victim ? 0.03 : 0.05, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    cone = new THREE.Mesh(new THREE.ConeGeometry(1.4, 5.5, 12, 1, true), coneMat);
+    cone.rotation.x = Math.PI / 2;
+    cone.position.set(0.22, 0, -3.1);
+    g.add(cone);
+  }
 
   // 名牌
   let tag = null;

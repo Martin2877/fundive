@@ -50,7 +50,9 @@ export class Player {
     this.freeflow = 0;           // 自由流剩余秒数
     this.blackoutT = -1;         // 灯故障倒计时
     this.flickerT = 0;           // 灯偶发闪烁（宇宙事件）剩余秒数——不惊悚，只烦人
-    this.stuckT = 0;             // 卡在窄缝的秒数
+    this.stuckT = 0;             // 卡在窄缝的秒数（顶着死缝门线硬挤才涨）
+    this.wedged = null;          // 被哪条死缝咬住（ctx.squeezes 里 hard 的）
+    this.inCrack = null;         // 当前在哪个窄缝区附近（软/硬都算，给 HUD 提示）
     this.dead = null;            // ending id
     this.stirScore = 0;          // 搅了多少沙（结算用）
     this.noGas = false;          // 海面空瓶漂浮：不再判气尽，但下潜仍会死
@@ -225,9 +227,38 @@ export class Player {
     }
     this.kickCd -= dt;
 
-    // 窄缝卡人：缝里硬挤会卡住
-    if (near.r < 1.0 && this.vel.length() > 1.4) this.stuckT += dt; else this.stuckT = Math.max(0, this.stuckT - dt * 2);
-    if (this.stuckT > 4) return this.die('stuck', ctx);
+    // —— 窄缝：只有 feats['crack'] 的死缝真咬人——颈口后有条"到此为止"线（gate），
+    // 顶到线还在往里硬挤才算卡住；松手或后拉立刻解脱。主线隘口只收窄几何，
+    // 永远不会"卡死"——stuck 结局只属于真钻进死缝还死顶着不放的过程。
+    const sq = this.onLand ? null : (ctx.squeezes || []).find(q => this.pos.distanceTo(q.pos) < q.r0) || null;
+    this.inCrack = sq;
+    if (sq?.hard) {
+      const along = _v.subVectors(this.pos, sq.pos).dot(sq.dir);
+      if (along > sq.gate) {                                   // 物理到头：推回门线
+        this.pos.addScaledVector(sq.dir, -(along - sq.gate));
+        const vv = this.vel.dot(sq.dir);
+        if (vv > 0) this.vel.addScaledVector(sq.dir, -vv);
+      }
+      _v2.set(input.mx, 0, -input.mz).applyQuaternion(q);
+      const pushing = _v2.lengthSq() > 0.01 && _v2.normalize().dot(sq.dir) > 0.3 && along > sq.gate - 0.8;
+      if (pushing) {
+        if (!this.wedged) {
+          this.wedged = sq;
+          ctx.talk?.('胸口一紧——窄缝咬住了。别再顶，收手慢慢退出来。');
+          silt.burst(this.pos.clone(), 0.5);
+          audio?.clunk?.();
+        }
+        this.stuckT += dt;
+        if (this.stuckT > 4) this.panic = Math.min(1, this.panic + dt * 0.05);
+      } else {
+        if (this.wedged) { this.wedged = null; ctx.talk?.('松了——退出来了。窄缝不吃快，侧身慢过。'); }
+        this.stuckT = Math.max(0, this.stuckT - dt * 2);
+      }
+      if (this.stuckT > 10) return this.die('stuck', ctx);
+    } else {
+      this.wedged = null;
+      this.stuckT = Math.max(0, this.stuckT - dt * 2);
+    }
 
     // —— 气量 ——
     const sac = 0.085 * this.ata() * (1 + (input.kick ? 0.9 : 0)) * (1 + this.panic * 1.6) * (this.towing ? 1.5 : 1);

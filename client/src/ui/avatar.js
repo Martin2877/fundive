@@ -43,7 +43,7 @@ export class BodyAvatar {
     const rim = new THREE.DirectionalLight(0x2a4a58, 1.0); rim.position.set(-2, 0.4, 2);
     this.scene.add(key, rim);
 
-    this.diver = makeDiver({ suit: 0x24404a, trim: 0x7fe9ea, sidemount: gear === 'smt', arm: true });
+    this.diver = makeDiver({ suit: 0x24404a, trim: 0x7fe9ea, sidemount: gear === 'smt', arm: true, beam: true });
     this.scene.add(this.diver);
     this.refs = this.diver.userData.refs;
 

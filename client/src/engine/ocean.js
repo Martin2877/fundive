@@ -97,8 +97,8 @@ export function buildOcean(map, uni) {
   const wr = g.wreck;
   const { boxes, props } = wr ? wreckBoxes(wr, plateau, rng) : { boxes: [], props: [] };
 
-  // —— 海底网格 ——
-  const SEG = 130, size = g.half * 2;
+  // —— 海底网格 ——（多铺 70m：人被夹在活动界内，崖边看到的不是"世界尽头"而是继续延伸的海床）
+  const SEG = 160, size = (g.half + 70) * 2;
   const tg = new THREE.PlaneGeometry(size, size, SEG, SEG);
   tg.rotateX(-Math.PI / 2);
   const pa = tg.attributes.position, col = new Float32Array(pa.count * 3);

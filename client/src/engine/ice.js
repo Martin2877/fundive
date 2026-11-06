@@ -39,8 +39,8 @@ export function buildIce(map, uni) {
   const bergDrop = (x, z) => berg ? berg.depth * (1 - smooth(berg.r * 0.55, berg.r * 1.1, Math.hypot(x - berg.x, z - berg.z))) : 0;
   const ceilY = (x, z) => CEIL + ceilBump(x, z) - bergDrop(x, z);
 
-  // —— 湖底网格 ——
-  const SEG = 120, size = g.half * 2;
+  // —— 湖底网格 ——（多铺 60m：边界外看到的仍是延伸的湖床与冰盖，不是虚空）
+  const SEG = 140, size = (g.half + 60) * 2;
   const tg = new THREE.PlaneGeometry(size, size, SEG, SEG);
   tg.rotateX(-Math.PI / 2);
   const pa = tg.attributes.position, col = new Float32Array(pa.count * 3);
@@ -57,7 +57,7 @@ export function buildIce(map, uni) {
   group.add(terrain);
 
   // —— 冰盖：整片顶盖（下表面可见，冰瘤起伏），冰洞处开三角口 ——
-  const cg = new THREE.PlaneGeometry(size, size, 110, 110);
+  const cg = new THREE.PlaneGeometry(size, size, 130, 130);
   cg.rotateX(Math.PI / 2);   // 法线朝下（从水下看）
   const cp = cg.attributes.position, ccol = new Float32Array(cp.count * 3);
   for (let i = 0; i < cp.count; i++) {

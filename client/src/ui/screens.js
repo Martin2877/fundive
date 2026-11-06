@@ -9,6 +9,7 @@ import { store } from '../game/storage.js';
 import { t, tl, getLang } from '@fundive/shared/i18n.js';
 import { STORY, storyOf } from '@fundive/shared/story.js';
 import { MSG, MAX_DIVERS } from '@fundive/shared/protocol.js';
+import { surveyCard } from './survey.js';
 
 const app = () => document.getElementById('app');
 const el = (html) => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; };
@@ -385,6 +386,9 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onBack }) {
     </div></div>`);
   app().appendChild(scr);
   const $ = (s) => scr.querySelector(s);
+  // 前人手绘测图：探明的路线轮廓 + 支洞标注，可放大看细节（中英标注可切换）
+  const planGrid = $('.plan-grid');
+  if (planGrid && map.route?.length > 1) planGrid.before(surveyCard(map, uni));
   const kit = map.kind === 'ocean' ? ['锚绳（上升时抓住它）', '主灯 + 备用灯', '备用二级头', '潜水计划（贴在手腕上）', '相机（24 张胶片）'] : ['引导绳 & 线轮', '主灯 + 备用灯', '备用二级头', '潜水计划（贴在手腕上）', '相机（24 张胶片）'];
   $('#kit').innerHTML = kit.map(k => `<label><input type="checkbox" checked disabled> ${t(k)}</label>`).join('　');
   const upd = () => { $('#pg').textContent = $('#rg').value; $('#pd').textContent = $('#rd').value; };

@@ -53,8 +53,13 @@ function wallRadius(s, nx, ny, nz) {
   const up = Math.min(1, Math.max(0, (ny - 0.1) / 0.8));
   const pinch = Math.min(0.85, s.sky * up * up * (3 - 2 * up) * 1.1);   // 天窗收口（平滑，避免折痕）
   SHAPE.lift = pinch * pinch * (s.r * 0.5 + 2.2);
-  // 半径下限：噪声捏得再狠也不能小于肩宽——否则通道局部"隐形封口"，游着游着撞上看不见的墙
-  return Math.max(0.6, rad * (1 - pinch * 0.78));
+  // 半径下限：噪声捏得再狠也不能小于肩宽——否则通道局部"隐形封口"，游着游着撞上看不见的墙。
+  // s.squeeze = 窄缝收腰（restriction/crack 标记段）：整段通道在颈口收成一条真缝——
+  // 网格与碰撞共用本函数，看得见的那条缝就是会顶住你的那条缝。
+  // s.sqFloor = 软隘口保底壁宽：收得再紧也留出能通过的水缝，主线永不封死。
+  const sq = s.squeeze || 0;
+  const wall = rad * (1 - pinch * 0.78) * (1 - sq);
+  return Math.max(0.34, s.sqFloor ? Math.max(wall, s.sqFloor) : wall);
 }
 
 // ---------- 采样一条路径为 spine ----------
@@ -193,10 +198,12 @@ export class NavField {
       const sg = this.segs[i];
       this._segClosest(sg, pos, tmp);
       const d = tmp.p.distanceTo(pos);
-      let lim = Math.max(0.4, tmp.r * 0.86 - radius);
+      let lim = Math.max(0.02, tmp.r * 0.86 - radius);
       if (tmp.smp && d > 1e-4) {
         _d.subVectors(pos, tmp.p).divideScalar(d);
-        lim = Math.max(0.4, wallRadius(tmp.smp, _d.x, _d.y, _d.z) * 0.93 - radius + SHAPE.lift * Math.max(0, _d.y));
+        // 下限 0.02 而不是 0.4：窄缝/岩盖收口处允许把人按到轴心——
+        // 否则"至少离轴 0.4m"会把眼睛推出 0.34m 的缝壁，贴脸穿模
+        lim = Math.max(0.02, wallRadius(tmp.smp, _d.x, _d.y, _d.z) * 0.93 - radius + SHAPE.lift * Math.max(0, _d.y));
       }
       const score = lim - d;
       if (score >= -1e-4) return false;
@@ -293,6 +300,38 @@ export function buildCave(map, uni) {
     s.sky = sky;
   }
 
+  // —— 窄缝与隘口：route feats['restriction'] = 主线隘口（慢慢过能过）；
+  //    支洞 feats['crack'] = 死缝（钻得进去、到头就真过不去，只能退出来）。
+  // s.squeeze 在颈口收腰：网格与碰撞共用 wallRadius——看得见的缝就是卡人的缝。
+  const squeezes = [];
+  const zoneMarks = [];
+  map.route.forEach((n, i) => {
+    if (!(n.feats || []).includes('restriction')) return;
+    const smp = spines.main[nodeToSample.get(i)];
+    if (!smp) return;
+    zoneMarks.push({ path: 'main', s0: smp.s, pinch: 0.5, half: 3.0, floor: 0.72 });   // 软隘口：收一半但保底 0.72m 壁宽——看着险，过得去
+    squeezes.push({ pos: smp.p.clone(), dir: smp.tan.clone(), r0: 3.6, hard: false, name: n.name });
+  });
+  for (const { def: b, i } of branchDefs) {
+    if (!(b.feats || []).includes('crack')) continue;
+    const sp = spines[`b${i}`];
+    if (!sp?.length) continue;
+    const s0t = sp[0].s + (sp[sp.length - 1].s - sp[0].s) * 0.55;
+    const smp = sp.reduce((m, s) => (Math.abs(s.s - s0t) < Math.abs(m.s - s0t) ? s : m), sp[0]);
+    zoneMarks.push({ path: `b${i}`, s0: smp.s, pinch: 0.58, half: 3.4 });
+    // dir 指向缝内（支洞 spine 从入口指向尽头）：gate 是颈口后的"到此为止"线
+    squeezes.push({ pos: smp.p.clone(), dir: smp.tan.clone(), r0: 4.2, hard: true, gate: 0.18, name: b.name });
+  }
+  for (const z of zoneMarks) {
+    for (const s of spines[z.path]) {
+      const d = Math.abs(s.s - z.s0) / z.half;
+      if (d < 1) {
+        s.squeeze = Math.max(s.squeeze || 0, z.pinch * (0.5 + 0.5 * Math.cos(d * Math.PI)));
+        if (z.floor) s.sqFloor = Math.max(s.sqFloor || 0, z.floor);
+      }
+    }
+  }
+
   // —— 放样管状网格 ——
   // 岔洞幻影墙剔除：顶点落在"另一条"通道的可通行空间内 => 该处壁面本不存在。
   // （碰撞的通道是管的并集，网格这里也按并集挖洞，所见即所碰。）
@@ -341,7 +380,7 @@ export function buildCave(map, uni) {
       let avgR = 0;
       for (const k of outer) avgR += A.set(acc.pos[k * 3], acc.pos[k * 3 + 1], acc.pos[k * 3 + 2]).distanceTo(sEnd.p);
       avgR /= outer.length;
-      const ph = rng() * 30, jit = (v, s2) => v + fbm3(v * 0.7 + ph, ph, s2, 2) * avgR * 0.14;
+      const ph = rng() * 30, jit = (v, s2) => v + fbm3(v * 0.7 + ph, ph, s2, 2) * avgR * 0.08;
       const mid = [];
       for (const k of outer) {
         A.set(acc.pos[k * 3], acc.pos[k * 3 + 1], acc.pos[k * 3 + 2]);
@@ -358,8 +397,13 @@ export function buildCave(map, uni) {
         acc.tri(a, d, b); acc.tri(b, d, c);
         acc.tri(mid[j], cIdx, mid[j + 1]);
       }
-      // 碰撞跟着盖走：盖尖附近半径收成 0.28*avgR，玩家能贴着岩盖摸到"洞底"
-      allSegs.push({ a: sEnd, b: { p: C, r: avgR * 0.28, s: sEnd.s + avgR, tan: sEnd.tan, N: sEnd.N, B: sEnd.B, sky: sEnd.sky || 0, path: path.tag } });
+      // 碰撞跟着盖走：两段收口——颈口收到一半半径，死点收成一条线。
+      // 死点停在盖面内侧 ~0.4R 处：视点再也摸不到盖面，贴脸不会看到地图外。
+      const midP = sEnd.p.clone().addScaledVector(sEnd.tan, avgR * 0.42);
+      const midS = { p: midP, r: avgR * 0.5, s: sEnd.s + avgR * 0.42, tan: sEnd.tan, N: sEnd.N, B: sEnd.B, sky: sEnd.sky || 0, path: path.tag };
+      const deadP = sEnd.p.clone().addScaledVector(sEnd.tan, avgR * 0.72);
+      allSegs.push({ a: sEnd, b: midS });
+      allSegs.push({ a: midS, b: { p: deadP, r: 0.05, s: sEnd.s + avgR * 0.72, tan: sEnd.tan, N: sEnd.N, B: sEnd.B, sky: sEnd.sky || 0, path: path.tag } });
     }
   }
 
@@ -367,6 +411,32 @@ export function buildCave(map, uni) {
   caveMesh.name = 'cave';
   caveMesh.receiveShadow = true;
   group.add(caveMesh);
+
+  // —— 基岩外壳：整个世界包在不透光的围岩里。
+  // 任何网格缺口/接缝露底/贴脸穿模，看到的都是黑岩而不是"地图外"（背景雾色）。
+  // 天窗里看它像洞口外的岩檐阴影——斯涅尔窗外本来就该是暗的。
+  {
+    const bb = new THREE.Box3();
+    for (const s of allSegs) { bb.expandByPoint(s.a.p); bb.expandByPoint(s.b.p); }
+    const ctr = bb.getCenter(new THREE.Vector3()), ext = bb.getSize(new THREE.Vector3()).length() / 2;
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(ext + 70, 32, 20),
+      new THREE.MeshBasicMaterial({ color: 0x05070a, side: THREE.BackSide }));
+    shell.position.copy(ctr);
+    group.add(shell);
+  }
+
+  // —— 基岩外壳：整个世界包在不透光的围岩里。
+  // 任何网格缺口/接缝露底/贴脸穿模，看到的都是黑岩而不是"地图外"（背景雾色）。
+  // 天窗里看它像洞口外的岩檐阴影——斯涅尔窗外本来就该是暗的。
+  {
+    const bb = new THREE.Box3();
+    for (const s of allSegs) { bb.expandByPoint(s.a.p); bb.expandByPoint(s.b.p); }
+    const ctr = bb.getCenter(new THREE.Vector3()), ext = bb.getSize(new THREE.Vector3()).length() / 2;
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(ext + 70, 32, 20),
+      new THREE.MeshBasicMaterial({ color: 0x05070a, side: THREE.BackSide }));
+    shell.position.copy(ctr);
+    group.add(shell);
+  }
 
   // —— 天窗：水面斯涅尔窗 + 丁达尔光柱 + 日光射灯（焦散在洞壁材质内计算） ——
   const shaftMat = new THREE.ShaderMaterial({
@@ -461,6 +531,8 @@ export function buildCave(map, uni) {
     _d2.set(range(rng, -0.12, 0.12), axis, range(rng, -0.12, 0.12)).normalize();
     _q.setFromUnitVectors(UP, _d2);
     addGeo(deco, speleoGeo(len, r0, kind), _p, _q, _s1, calcite);
+    // 大根钟乳/石笋是真柱子：贴脸撞上去以前只挡装饰不挡人，近面会穿进石头里
+    if (len > 0.7 && r0 > 0.05) obstacles.push({ a: _p.clone(), b: _p.clone().addScaledVector(_d2, len * 0.85), r: r0 + 0.06 });
     return _p;
   };
   // 崩塌巨石：噪声位移的球体，落在地面两侧
@@ -475,7 +547,7 @@ export function buildCave(map, uni) {
     _q.setFromEuler(new THREE.Euler(rng() * 3, rng() * 6, rng() * 3));
     const tone = range(rng, 0.8, 1.15);
     addGeo(deco, g, _p, _q, new THREE.Vector3(size, size, size), () => [tone, tone * 0.97, tone * 0.92]);
-    obstacles.push({ p: _p.clone(), r: size * 1.1 });   // 巨石挡路是真的挡
+    obstacles.push({ p: _p.clone(), r: size * 1.22 });   // 巨石挡路是真的挡（含噪声凸尖余量）
   };
   // 残骸带：翻倒的气瓶、旧装备 —— 打捞类地图的气氛组
   const addDebris = (s) => {
@@ -602,7 +674,7 @@ export function buildCave(map, uni) {
     const sp = spines[`b${i}`];
     if (!sp) continue;
     const e = sp.find(s => s.s - sp[0].s >= 8) || sp[sp.length - 1], end = sp[sp.length - 1];
-    const kind = b.altExit || b.kind || (b.bottomless ? 'bottomless' : b.pocket ? 'pocket' : b.deadEnd ? 'dead' : 'side');
+    const kind = b.altExit || b.kind || (b.bottomless ? 'bottomless' : b.pocket ? 'pocket' : b.deadEnd ? 'dead' : (b.feats || []).includes('crack') ? 'crack' : 'side');
     branchInfo.push({ i, kind, name: b.name, entry: e.p.clone(), end: end.p.clone() });
     if (b.pocket) addDome(end.p, b.endR || b.r * 1.6, `b${i}`);
     // 非常规出口支洞：尽头是另一条活路
@@ -644,7 +716,7 @@ export function buildCave(map, uni) {
     group, nav, wallPoint, mainSpine: mainS,
     entryPos: entry.pos, entryR: entry.r,
     nodes: map.route.map((n, i) => ({ i, pos: new THREE.Vector3(...n.p), r: n.r, name: n.name, feats: n.feats || [], room: n.room, sky: n.sky, sample: nodeToSample.get(i) })),
-    skylights, surfaces, shaftMat, pockets, branchInfo, siltZones, flowZones, photoables, altExits,
+    skylights, surfaces, shaftMat, pockets, branchInfo, siltZones, flowZones, photoables, altExits, squeezes,
     creatureAnchors,
     linePts, lineGap: gapRange ? mainS[gapRange[0]]?.p.clone() : null,
     objectiveSpot: { pos: new THREE.Vector3(...objNode.p), r: objNode.r, name: objNode.name },

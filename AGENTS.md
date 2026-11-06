@@ -54,6 +54,9 @@ node scripts/compassprobe.mjs # 罗盘课节探针：bearing 检查 + HUD 罗盘
 
 maps.js 的 branches 支持 `pocket`(尽头气室,配 endR)、`bottomless`(无底/未探明竖井)、`deadEnd`、
 `to`(回环：末端接回主线节点，配 `kind:'loop'` 播报回环提示)；
+支洞 `feats:['crack']` = 死缝：cave.js 生成 squeeze 区（网格/碰撞共用 wallRadius 收腰），
+颈口后有物理门线(gate)，player.js 里顶着门线硬挤才累积 stuckT 判 `stuck` 结局，松手/后拉即解脱；
+主线节点 `feats:['restriction']` = 软隘口：收腰但保底壁宽(sqFloor)，永不封死主线；
 主路线节点 feats 含 `pocket` 也会生成气室。cave.js `addDome` 生成水线面+`pockets`(含 waterY/bad)，
 player.js 判 `inAir`：不耗气、惊慌下降；bad 气室(20%,种子决定)不能呼吸。气室里气<60 停留 25s -> `rescued` 结局。
 session 进入支洞 4m 内提示并记 `branch` 事件(进回放/结算)。

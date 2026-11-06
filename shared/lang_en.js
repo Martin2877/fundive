@@ -1524,4 +1524,23 @@ export const EN = {
   "冰层在头顶发出长长的呻吟。它一直在动——只是慢得你看不见。": "The ice groans overhead, long and low. It's always moving — just too slowly to see.",
   "一股寒流扫过——体温掉了一截。": "A cold sweep rolls through — your body heat drops a notch.",
   "一团鱼群从你面前掠过——快得像一片云。": "A bait ball whips past your face — quick as a cloud.",
+  // —— 窄缝（卡缝结局的过程化）——
+  "胸口一紧——窄缝咬住了。别再顶，收手慢慢退出来。": "Your chest jams — the crack has you. Stop pushing, ease back out slowly.",
+  "松了——退出来了。窄缝不吃快，侧身慢过。": "Loose — you're out. Cracks don't take speed; go sideways and slow.",
+  "卡住了——别再顶，收手收腿，慢慢往后退。": "Stuck — stop pushing, tuck your arms, and back out slowly.",
+  "窄缝——侧身慢过。感觉顶住就先退出来，别硬挤。": "A tight crack — take it sideways and slow. If it bites, back out; don't force it.",
+  "这条岔道窄得只剩一条缝——钻得进半截，感觉顶住就立刻退，别硬挤。": "This fork narrows to a bare slit — you can get partway in. If it bites, back out at once; don't force it.",
+  // —— 前人手绘测图 ——
+  "前人手绘测图": "Hand-drawn survey by earlier divers",
+  "探明部分——今天的宇宙未必与图一致": "Explored parts only — today's universe may differ",
+  "放大查看": "Enlarge",
+  "拖拽平移 · 滚轮缩放": "Drag to pan · scroll to zoom",
+  "主通道": "Main line",
+  "支洞": "Side passage",
+  "未探明": "Unexplored",
+  "气室": "Air pocket",
+  "隘口": "Restriction",
+  "死路": "Dead end",
+  "入口": "Entrance",
+  "中文": "中文",
 };

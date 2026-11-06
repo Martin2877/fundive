@@ -642,7 +642,8 @@ export class DiveSession {
     if (p._wildAsc > 0.8) warnGate('wild', 3, '你在往水面上飞——肺要炸了，稳住！');
     else if (p._fastAsc > 0.6) warnGate('asc', 6, '升太快——减压债在涨，出水前得在浅水还清。');
     if (p.decoOwed > 5 && p.depth() < 8) warnGate('deco', 12, '电脑表在叫：你欠着减压停留，回 5 米停够再走。');
-    if (p.stuckT > 1.5) warnGate('stuck', 6, '卡住了——别硬蹬，停稳，慢慢往后退。');
+    if (p.wedged) warnGate('stuck', 5, '卡住了——别再顶，收手收腿，慢慢往后退。');
+    else if (p.inCrack) warnGate('crack', 14, '窄缝——侧身慢过。感觉顶住就先退出来，别硬挤。');
     if (p.gas < (this.o.plan?.turnGas || 140)) warnOnce('gas2', '到折返气压了——按计划该回头了。');
     if (this.o.plan?.planDepth && p.depth() > this.o.plan.planDepth + 2) warnOnce('overplan', '已经超过计划深度了——按计划，该回头了。');
     // —— 气室 / 支洞 ——
@@ -659,7 +660,7 @@ export class DiveSession {
       if (this.found.has(b.i) || p.pos.distanceTo(b.entry) > 4) continue;
       this.found.add(b.i);
       this.events.push({ t: +this._t.toFixed(1), k: 'branch', name: b.name, kind: b.kind });
-      this.talk(b.kind === 'bottomless' ? '这条支洞没有人量过底——线到此为止，再往下全凭运气。' : b.kind === 'pocket' ? '支洞里有空气的味道——前面可能是气室。' : b.kind === 'dead' ? '岔路。多半是死路，进去要想好怎么出来。' : b.kind === 'loop' ? '岔路——听水声，像是往主线方向绕回去的。' : b.kind === 'room' ? '岔路尽头的灯照不到墙——前面是个厅。' : b.kind === 'mouth' ? '这条岔道一路上行，远处漏下来一线天光——像是另一口天窗。' : b.kind === 'climb' ? '岔道往上走，水声在后面变小——前头像是个干厅。' : b.kind === 'far' ? '岔道又窄又长，引绳到不了的地方——尽头隐约有风声。' : '一条没标在图上的支洞。');
+      this.talk(b.kind === 'bottomless' ? '这条支洞没有人量过底——线到此为止，再往下全凭运气。' : b.kind === 'pocket' ? '支洞里有空气的味道——前面可能是气室。' : b.kind === 'dead' ? '岔路。多半是死路，进去要想好怎么出来。' : b.kind === 'crack' ? '这条岔道窄得只剩一条缝——钻得进半截，感觉顶住就立刻退，别硬挤。' : b.kind === 'loop' ? '岔路——听水声，像是往主线方向绕回去的。' : b.kind === 'room' ? '岔路尽头的灯照不到墙——前面是个厅。' : b.kind === 'mouth' ? '这条岔道一路上行，远处漏下来一线天光——像是另一口天窗。' : b.kind === 'climb' ? '岔道往上走，水声在后面变小——前头像是个干厅。' : b.kind === 'far' ? '岔道又窄又长，引绳到不了的地方——尽头隐约有风声。' : '一条没标在图上的支洞。');
     }
     // —— 非常规出口 ——
     this._exitSpot = null;
@@ -835,6 +836,7 @@ export class DiveSession {
     return {
       nav: this.cave.nav, silt: this.silt, uni: this.uni, audio: this.o.audio,
       flowZones: this.cave.flowZones, siltZones: this.cave.siltZones, pockets: this.cave.pockets,
+      squeezes: this.cave.squeezes || [],
       entryPos: this.cave.entryPos, entryR: this.cave.entryR,
       player: this.player, photos: this.o.photos, talk: (t, d) => this.talk(t, d),
       fx: { emit: (k, d) => this.emit(k, d) },
@@ -966,7 +968,9 @@ export class DiveSession {
   _exitEnding() {
     const p = this.player;
     if (p.decoOwed > 8) return 'deco_hit';
-    const rough = p.gas < 40 || p.panic > 0.5 || this.buddyLost;
+    // 潜伴还在洞里的泥沙里丢着你就出水了——这是buddy_lost，不是"惊险生还"
+    if (this.buddyLost || this.buddy?.lost) return 'buddy_lost';
+    const rough = p.gas < 40 || p.panic > 0.5;
     return rough ? 'survived_rough' : 'survived';
   }
 
