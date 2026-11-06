@@ -52,7 +52,8 @@ node scripts/compassprobe.mjs # 罗盘课节探针：bearing 检查 + HUD 罗盘
 
 ## 支洞与气室
 
-maps.js 的 branches 支持 `pocket`(尽头气室,配 endR)、`bottomless`(无底/未探明竖井)、`deadEnd`；
+maps.js 的 branches 支持 `pocket`(尽头气室,配 endR)、`bottomless`(无底/未探明竖井)、`deadEnd`、
+`to`(回环：末端接回主线节点，配 `kind:'loop'` 播报回环提示)；
 主路线节点 feats 含 `pocket` 也会生成气室。cave.js `addDome` 生成水线面+`pockets`(含 waterY/bad)，
 player.js 判 `inAir`：不耗气、惊慌下降；bad 气室(20%,种子决定)不能呼吸。气室里气<60 停留 25s -> `rescued` 结局。
 session 进入支洞 4m 内提示并记 `branch` 事件(进回放/结算)。
@@ -77,7 +78,8 @@ route 节点 `p:[x, 离海底高度, z]`（`abs:true` 绝对 y，`surface:true` 
 ## 剧情与支线
 
 `shared/story.js`：每张洞穴图一章(title/briefing/beats/epilogue/notes)。beats 走到节点或目标完成时由 session 播报；
-通关(活着 + 目标完成)记 `store.chapters`，菜单地图卡显示 ✓。支线机缘 `uni.sides`(手记/遗落物/求助潜水员，独立随机流)，
+通关(活着 + 目标完成)记 `store.chapters`，菜单地图卡显示 ✓。`STORY_VARS` + `storyOf(mapId, uni)`：同一章在
+不同宇宙里用不同简报/尾声（uni.storyVar 0=原版，1/2=变体）。支线机缘 `uni.sides`(手记/遗落物/求助潜水员，独立随机流)，
 由 `game/sidequest.js` 生成并响应 E；手记进图鉴「前人手记」页(store.lore)。
 
 ## 复盘回放
@@ -107,7 +109,10 @@ e2e：`node scripts/e2e_train.mjs --url=http://localhost:5173`（需先 npm run 
   移动中变慢)、惊慌、上升限速(>0.5m/s 欠减压债、>1.0m/s 持续4s判减压病、
   G抓绳爬升自动限速0.45m/s)、氧中毒(>65m 确定性暴露计时)、
   卡缝、泥沙迷路、断线迷路、自由流、灯故障——全部触发对应"结局"。
-- **目标类型**：explore 标记石 / photo 指定物种拍摄 / salvage 打捞负重 / rescue 拖带被困者。
+- **目标类型**：explore 标记石 / photo 指定物种拍摄 / salvage 打捞负重 / rescue 拖带被困者 / survey 巡线标记（沿主线摸 3 处标记石）。
+- **随机事件**：`uni.events` 由宇宙种子排定时刻表（rumble 洞鸣震屏 / rockfall 落石扬尘 /
+  surge 临时激流 / flicker 灯闪 / shoal 鱼群横穿 / omen 氛围凶兆 / thermocline 温跃层 /
+  creak+cold_snap 冰下专属），session `_fireEvent` 一次性触发；OMENS 文案池在 story.js。
 - **拍照**：F 开取景器再按 F 拍摄；按主体居中度+距离+光照评 1-3 星，进图鉴(localStorage)。
 
 ## 操作

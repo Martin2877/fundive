@@ -49,6 +49,7 @@ export class Player {
     this.towing = false;         // 拖带被困者
     this.freeflow = 0;           // 自由流剩余秒数
     this.blackoutT = -1;         // 灯故障倒计时
+    this.flickerT = 0;           // 灯偶发闪烁（宇宙事件）剩余秒数——不惊悚，只烦人
     this.stuckT = 0;             // 卡在窄缝的秒数
     this.dead = null;            // ending id
     this.stirScore = 0;          // 搅了多少沙（结算用）

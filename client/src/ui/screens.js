@@ -7,7 +7,7 @@ import { makeUniverse, objectiveText } from '@fundive/shared/universe.js';
 import { randomSeed, universeName } from '@fundive/shared/rng.js';
 import { store } from '../game/storage.js';
 import { t, tl, getLang } from '@fundive/shared/i18n.js';
-import { STORY } from '@fundive/shared/story.js';
+import { STORY, storyOf } from '@fundive/shared/story.js';
 import { MSG, MAX_DIVERS } from '@fundive/shared/protocol.js';
 
 const app = () => document.getElementById('app');
@@ -351,6 +351,7 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onBack }) {
   clear();
   const map = MAPS.find(m => m.id === mapId);
   const uni = makeUniverse(mapId, seed);
+  const sty = storyOf(mapId, uni);   // 本宇宙的剧情讲法（storyVar 决定变体）
   const minD = Math.min(5, map.maxDepth), defD = Math.max(minD, Math.round(map.maxDepth * 0.7));
   const scr = el(`
     <div class="screen"><div class="panel" style="width:min(620px,94vw)">
@@ -359,7 +360,7 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onBack }) {
       <div class="flavor">${uniBrief(uni, map)}${uni.flavor.map(f => `<span>${t(f)}</span>`).join('')}</div>
       <div class="sub" style="margin:8px 0"><b style="color:var(--lagoon)">${OBJECTIVE_DEFS[uni.objective.type].icon} ${t('本次目标：')}</b>${objectiveText(uni)}<br>
       <span style="font-size:12px;color:var(--dim)">${t(map.basedOn)}</span></div>
-      ${STORY[mapId] ? `<div class="story"><b>${t(STORY[mapId].title)}</b>${STORY[mapId].briefing.map(l => `<div>${t(l)}</div>`).join('')}${uni.sides.length ? `<div class="dim">${t('本次宇宙有 {n} 个支线机缘，随缘遇见。', { n: uni.sides.length })}</div>` : ''}</div>` : ''}
+      ${sty ? `<div class="story"><b>${t(sty.title)}</b>${sty.briefing.map(l => `<div>${t(l)}</div>`).join('')}${uni.sides.length ? `<div class="dim">${t('本次宇宙有 {n} 个支线机缘，随缘遇见。', { n: uni.sides.length })}</div>` : ''}</div>` : ''}
       <div class="plan-grid">
         <div class="cell"><div class="v" id="pg">140</div><div class="l">${t('折返气压 bar —— 三分之一法则')}</div></div>
         <div class="cell"><div class="v" id="pd">${defD}</div><div class="l">${t('计划深度 m')}</div></div>
@@ -400,6 +401,7 @@ export function showDebrief(result, { onRetry, onNewUniverse, onMenu, onGallery,
   const good = e.kind === 'good';
   const s = result.stats;
   const teamRows = (team || []).map(r => `<tr><td>${r.name}</td><td>${t(ENDINGS[r.ending]?.name || '')}</td><td>${r.objectiveDone ? '✓' : '—'}</td></tr>`).join('');
+  const sty = result.seed != null ? storyOf(result.mapId, makeUniverse(result.mapId, result.seed)) : STORY[result.mapId];
   const scr = el(`
     <div class="screen"><div class="panel" style="background:none;border:none;box-shadow:none;display:grid;place-items:center;gap:14px">
       <div class="endcard${good ? '' : ' bad'}">
@@ -408,7 +410,7 @@ export function showDebrief(result, { onRetry, onNewUniverse, onMenu, onGallery,
         <div class="bd">
           ${t(e.desc)}
           <div class="hint">${t('复盘笔记：')}${t(e.hint)}</div>
-          ${STORY[result.mapId] ? `<div class="hint" style="border-color:#ffd27f"><b>${t(STORY[result.mapId].title)}</b>${result.chapterDone ? ' · ' + t('章节完成') : ''}<br>${result.chapterDone ? t(STORY[result.mapId].epilogue.good) : good ? t('目标没有完成——但你活着回来了。这一章，下次再写。') : t(STORY[result.mapId].epilogue.bad)}</div>` : ''}
+          ${sty ? `<div class="hint" style="border-color:#ffd27f"><b>${t(sty.title)}</b>${result.chapterDone ? ' · ' + t('章节完成') : ''}<br>${result.chapterDone ? t(sty.epilogue.good) : good ? t('目标没有完成——但你活着回来了。这一章，下次再写。') : t(sty.epilogue.bad)}</div>` : ''}
         </div>
       </div>
       <div class="plan-grid" style="width:min(400px,86vw);margin:0">

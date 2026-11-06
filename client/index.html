@@ -130,6 +130,7 @@ ol.steps{margin:8px 0 0;padding-left:20px;font-size:12px;line-height:1.8;color:v
 #hud .bad{color:#ff7f7f}
 #hud #obj{position:absolute;top:18px;left:50%;transform:translateX(-50%);text-align:center;font-size:12px;letter-spacing:.14em;color:var(--ink);background:rgba(2,10,12,.4);border:1px solid var(--line);border-radius:999px;padding:6px 18px}
 #hud #cmp{position:absolute;top:52px;left:50%;transform:translateX(-50%);width:280px;height:22px;overflow:hidden;background:rgba(2,10,12,.45);border:1px solid var(--line);border-radius:999px}
+#hud #region{position:absolute;top:80px;left:50%;transform:translateX(-50%);font-size:10.5px;letter-spacing:.34em;color:var(--dim);text-shadow:0 1px 8px #000}
 #hud #cmp .ct{position:absolute;inset:0}
 #hud #cmp .ctick{position:absolute;top:3px;left:0;font-size:10.5px;letter-spacing:.1em;color:var(--dim);transform:translateX(-999px)}
 #hud #cmp .ctick[data-d="0"]{color:var(--ink);font-weight:700}
@@ -215,7 +216,7 @@ body.diving #touch{display:block}
 .loading-txt{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;letter-spacing:.3em;color:var(--dim);z-index:30}
 .talk{position:fixed;left:50%;bottom:26%;transform:translateX(-50%);font-size:clamp(16px,2.4vw,22px);color:var(--ink);text-shadow:0 2px 16px #000;letter-spacing:.08em;opacity:0;transition:opacity .4s;z-index:8;text-align:center}
 .talk.show{opacity:1}
-#chatlog{position:fixed;left:22px;bottom:110px;z-index:6;display:grid;gap:4px;pointer-events:none}
+#chatlog{position:fixed;left:200px;bottom:26px;z-index:6;display:grid;gap:4px;pointer-events:none}
 #chatlog .msg{font-size:12px;color:var(--ink);text-shadow:0 1px 8px #000;background:rgba(2,10,12,.45);padding:4px 12px;border-radius:999px;width:fit-content}
 /* —— 教学：考核面板 —— */
 #trainer{position:fixed;left:22px;top:50%;transform:translateY(-50%);z-index:6;width:min(300px,40vw);pointer-events:none;font-variant-numeric:tabular-nums}
@@ -277,7 +278,7 @@ body.diving #touch{display:block}
 .steps-table td{padding:4px 8px;border-bottom:1px solid rgba(214,236,232,.07)}
 .steps-table td.bad,.steps-table .bad{color:#ff9f8f}
 /* —— 体感小人 —— */
-#avatar{position:fixed;left:20px;bottom:104px;width:150px;height:178px;z-index:5;pointer-events:none}
+#avatar{position:fixed;left:20px;bottom:140px;width:150px;height:178px;z-index:5;pointer-events:none}
 #avatar canvas{width:100%;height:100%;display:block;border:1px solid var(--line);border-radius:14px;background:rgba(2,10,12,.35)}
 #avatar .av-lbl{position:absolute;top:5px;left:10px;font-size:9px;letter-spacing:.34em;color:var(--dim)}
 @media (max-width:640px){

@@ -115,4 +115,30 @@ export class GameAudio {
     src.connect(lp); lp.connect(g); g.connect(this.master); src.start(); src.stop(t + 0.8);
   }
   bubble() { this._blip(300 + Math.random() * 300, 0.06, 0.05); }
+  rumble() { // 远处地质闷响：低频噪声慢慢滚过去
+    if (!this.ctx) return;
+    const src = this.ctx.createBufferSource(); src.buffer = this._noiseBuf(2.4);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 90; lp.Q.value = 2;
+    const g = this.ctx.createGain(); const t = this.ctx.currentTime;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.3, t + 0.4);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 2.2);
+    src.connect(lp); lp.connect(g); g.connect(this.master); src.start(); src.stop(t + 2.4);
+    // 低频正弦垫底——让手机小喇叭也能"听"到震动
+    const o = this.ctx.createOscillator(), og = this.ctx.createGain();
+    o.frequency.setValueAtTime(38, t); o.frequency.linearRampToValueAtTime(24, t + 1.8);
+    og.gain.setValueAtTime(0.16, t); og.gain.exponentialRampToValueAtTime(0.001, t + 2);
+    o.connect(og); og.connect(this.master); o.start(); o.stop(t + 2.1);
+  }
+  whoosh() { // 激流扫过：中频噪声从左到右（简化成渐强渐弱）
+    if (!this.ctx) return;
+    const src = this.ctx.createBufferSource(); src.buffer = this._noiseBuf(1.6);
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.setValueAtTime(400, this.ctx.currentTime);
+    bp.frequency.exponentialRampToValueAtTime(1200, this.ctx.currentTime + 0.7); bp.Q.value = 1.2;
+    const g = this.ctx.createGain(); const t = this.ctx.currentTime;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.2, t + 0.5);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+    src.connect(bp); bp.connect(g); g.connect(this.master); src.start(); src.stop(t + 1.6);
+  }
 }

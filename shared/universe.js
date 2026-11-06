@@ -11,12 +11,17 @@ const SALVAGE_ITEMS = [
   { id: 'camera',   name: '掉队的运动相机',     w: 1.4, glow: 0x9fe8c0 },
   { id: 'reel',     name: '缠成麻花的线轮',     w: 2.8, glow: 0xffd27f },
   { id: 'fin',      name: '单身脚蹼',           w: 1.0, glow: 0x9aa7ff },
+  { id: 'torch',    name: '熄灭的老式电筒',     w: 1.2, glow: 0xffe0a0 },
+  { id: 'liftbag',  name: '没充起来的浮力袋',   w: 2.0, glow: 0xff8a6a },
+  { id: 'tag',      name: '刻着日期的黄铜标签', w: 0.8, glow: 0xd8c27f },
 ];
 
 const VICTIMS = [
   { id: 'lost_diver', name: '迷路的潜水员', note: '灯还亮着，人已经慌得只会原地踢水。' },
   { id: 'kid',        name: '被困的队员',   note: '抱着膝盖坐在气室边上，等你很久了。' },
   { id: 'old_timer',  name: '逞强的老潜水员', note: '嘴硬说不用救，气表说不了谎。' },
+  { id: 'photog',     name: '拍丢了的摄影师', note: '相机挂绳还缠在手腕上，人已经分不清上下。' },
+  { id: 'mapper',     name: '测图的绘图员', note: '抱着测绘板不撒手，说什么也不肯先走。' },
 ];
 
 // 彩蛋事件池 —— 低概率的宇宙风味
@@ -37,7 +42,7 @@ export function makeUniverse(mapId, seed) {
 
   // —— 目标：从地图允许的目标类型中加权抽取 ——
   const objType = weighted(rng, map.objectives.map(o => [
-    o, o === 'explore' ? 3 : o === 'photo' ? 3 : o === 'salvage' ? 2.4 : 2.6,
+    o, o === 'explore' ? 3 : o === 'photo' ? 3 : o === 'salvage' ? 2.4 : o === 'survey' ? 2.2 : 2.6,
   ]));
   // 目标压在路线的最后两节——引绳一路带你到它边上，不会在半路摸黑找
   const deepIdx = Math.max(2, map.route.length - 1 - intRange(rng, 0, Math.min(1, map.route.length - 3)));
@@ -52,6 +57,16 @@ export function makeUniverse(mapId, seed) {
     objective.item = pick(rng, SALVAGE_ITEMS);
   } else if (objType === 'rescue') {
     objective.victim = pick(rng, VICTIMS);
+  } else if (objType === 'survey') {
+    // 巡线标记：沿路线撒三处标记石（前/中/深），全部摸过才算
+    const n = map.route.length;
+    const legs = new Set([
+      intRange(rng, Math.max(2, Math.floor(n * 0.3)), Math.floor(n * 0.55)),
+      intRange(rng, Math.floor(n * 0.6), Math.floor(n * 0.8)),
+      intRange(rng, Math.floor(n * 0.85), n - 1),
+    ]);
+    while (legs.size < 3) legs.add(Math.min(n - 1, Math.max(...legs) + 1));
+    objective.legs = [...legs].sort((a, b) => a - b);
   }
 
   // —— 生物布点：每条路径的 feats + 地图上允许出现的物种 ——
@@ -115,6 +130,28 @@ export function makeUniverse(mapId, seed) {
 
   const eggs = EASTER_EGGS.filter(e => chance(rng, e.w / 40)).map(e => e.id);
 
+  // —— 剧情变体：同一个洞、同一个宇宙，讲法不一样 ——
+  const storyVar = intRange(rng, 0, 2);
+
+  // —— 随机事件时刻表：宇宙种子排定的突发事件（联机各端一致，各发一次） ——
+  const events = [];
+  if (!map.hidden) {
+    const erng = universeRng(mapId, `${seed}::events`);
+    const kinds = ['rumble', 'omen'];
+    if ((h.flow || 0) > 0.12 || map.kind === 'ocean') kinds.push('surge');
+    if (!map.kind && (h.silt || 0) > 0.25) kinds.push('rockfall');
+    if (!map.kind || map.kind === 'ice') kinds.push('flicker');
+    if (map.kind === 'ocean') kinds.push('thermocline');
+    if (map.kind === 'ice') kinds.push('creak', 'cold_snap');
+    if (map.creatures.some(c => SPECIES[c]?.cat === 'fish')) kinds.push('shoal');
+    const nEv = intRange(erng, 2, 4);
+    let t0 = range(erng, 55, 130);
+    for (let i = 0; i < nEv; i++) {
+      events.push({ t: Math.round(t0), k: pick(erng, kinds) });
+      t0 += range(erng, 80, 170);
+    }
+  }
+
   // 宇宙风味描述
   const flavor = [];
   if (mods.vis > 1.15) flavor.push('水比平常清');
@@ -131,6 +168,7 @@ export function makeUniverse(mapId, seed) {
     mapId, seed,
     name: universeName(seed),
     objective, placements, mods, branches, eggs, flavor, sides,
+    storyVar, events,
   };
 }
 
@@ -144,7 +182,7 @@ export function genSideBranches(map, seed) {
   if (n < 4 || map.kind === 'ocean' || map.kind === 'ice' || map.hidden) return [];
   const used = new Set((map.branches || []).map(b => b.from));
   const out = [];
-  const want = Math.min(4, Math.max(2, Math.round(n / 3)));
+  const want = Math.min(5, Math.max(3, Math.round(n / 3)));
   let tries = 0;
   while (out.length < want && tries++ < 60) {
     const from = intRange(rng, 1, n - 2);
@@ -211,15 +249,18 @@ export function genSideBranches(map, seed) {
 
   // —— 非常规出口：每张图保底一条（中后段岔出去），三种玩法由种子定 ——
   // mouth=第二洞口（水上天光，上浮即出）  climb=高处旱厅（卸装备沿干缝攀出）  far=远端旱厅（离岸太远，呼救接应）
-  if (n >= 5) {
+  // 长图六成概率有第二个出口——同一个宇宙可能同时藏着两种脱身方式
+  const exitKinds = shuffled(rng, ['mouth', 'climb', 'far']);
+  const nExit = n >= 10 && chance(rng, 0.6) ? 2 : 1;
+  for (let xi = 0; xi < nExit && n >= 5; xi++) {
     let from = intRange(rng, Math.floor(n / 2), n - 2), guard = 0;
     while (used.has(from) && guard++ < 8) from = intRange(rng, Math.floor(n / 2), n - 2);
     const node = R[from];
     const a = R[Math.max(0, from - 1)].p, b = R[Math.min(n - 1, from + 1)].p;
     const dx = b[0] - a[0], dz = b[2] - a[2], dl = Math.hypot(dx, dz) || 1;
     const side = chance(rng, 0.5) ? 1 : -1, px = -dz / dl * side, pz = dx / dl * side;
-    const kind = pick(rng, ['mouth', 'climb', 'far']);
-    const d1 = range(rng, 9, 16), d2 = range(rng, 14, 24);
+    const kind = exitKinds[xi % exitKinds.length];
+    const d1 = range(rng, 9, 16);
     const p1 = [node.p[0] + px * d1, node.p[1] + range(rng, 2, 6), node.p[2] + pz * d1];
     let def;
     if (kind === 'mouth') {
@@ -245,6 +286,7 @@ export function objectiveText(u) {
     case 'photo':   return t('拍到「{n}」（≥{q}星）', { n: spName(o.species), q: o.quality });
     case 'salvage': return t('打捞「{n}」带回出口', { n: t(o.item.name) });
     case 'rescue':  return t('找到「{n}」拖带回出口', { n: t(o.victim.name) });
+    case 'survey':  return t('巡线标记 {n} 处并返回', { n: o.legs?.length || 3 });
     default: return t('下去看看');
   }
 }

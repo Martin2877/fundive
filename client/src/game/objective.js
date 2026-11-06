@@ -60,6 +60,38 @@ export class Objective {
       this.victimDef = uni.objective.victim;
       this.prompt = t('接近 {n}', { n: t(uni.objective.victim.name) });
       this.towOff = new THREE.Vector3();
+    } else if (this.type === 'survey') {
+      // 巡线标记：沿主路线三处标记石，全部摸过才算完成
+      const mk = (k) => {
+        const g = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 0.9 });
+        [[0, 0, 0.26], [0.08, 0.18, 0.19]].forEach(([x, y, r]) => {
+          const s = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 6), mat);
+          s.position.set(x, y, 0); s.scale.y = 0.6; g.add(s);
+        });
+        const cookie = new THREE.Mesh(
+          new THREE.ConeGeometry(0.09, 0.26, 5),
+          new THREE.MeshBasicMaterial({ color: 0xffd27f })
+        );
+        cookie.position.y = 0.62;
+        g.add(cookie);
+        const glow = new THREE.PointLight(0xffcf7f, 5, 10);
+        glow.position.y = 0.6;
+        g.add(glow);
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(0.34, 0.02, 6, 20),
+          new THREE.MeshBasicMaterial({ color: 0xffd27f, transparent: true, opacity: 0.8 })
+        );
+        ring.rotation.x = Math.PI / 2; ring.position.y = 0.1;
+        g.add(ring);
+        const node = cave.nodes[k] || cave.nodes[cave.nodes.length - 1];
+        g.position.copy(node.pos).add(_v.set(k % 2 ? 0.8 : -0.8, -node.r * 0.5, 0.7));
+        scene.add(g);
+        return { node, obj: g, hit: false };
+      };
+      this.legs = (uni.objective.legs || []).map(mk);
+      this.spotPos = spot.pos;
+      if (this.legs[0]) spot.pos.copy(this.legs[0].obj.position);
     }
   }
 
@@ -109,6 +141,27 @@ export class Objective {
         }
         break;
       }
+      case 'survey': {
+        let justHit = 0;
+        for (const leg of this.legs) {
+          if (!leg.hit && player.pos.distanceTo(leg.obj.position) < 1.6) { leg.hit = true; justHit++; }
+        }
+        if (justHit) {
+          const got = this.legs.filter(l => l.hit).length;
+          ctx.audio?.ok?.();
+          if (got >= this.legs.length) {
+            this.done = true;
+            talk?.('最后一块标记石。巡线完成——回出口。');
+            ctx.fx?.emit('objective', { done: true });
+          } else {
+            talk?.(t('标记石到手：{a}/{b}。继续往前。', { a: got, b: this.legs.length }));
+          }
+        }
+        // 罗盘/距离指向下一处未摸的标记石
+        const next = this.legs.find(l => !l.hit);
+        if (next && this.spotPos) this.spotPos.copy(next.obj.position);
+        break;
+      }
     }
     return null;
   }
@@ -143,6 +196,7 @@ export class Objective {
       case 'photo': return t('目标：拍到 {n} ≥{q}★', { n: spName(o.species), q: o.quality });
       case 'salvage': return t('目标：打捞 {n}', { n: t(o.item.name) }) + (this.progress ? `（${t(this.progress)}）` : '');
       case 'rescue': return t('目标：找到并拖出 {n}', { n: t(o.victim.name) });
+      case 'survey': return t('目标：巡线标记 {a}/{b}', { a: this.legs ? this.legs.filter(l => l.hit).length : 0, b: this.legs ? this.legs.length : 3 });
       default: return '';
     }
   }

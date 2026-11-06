@@ -11,7 +11,9 @@ import { Player } from './player.js';
 import { Buddy } from './buddy.js';
 import { Objective } from './objective.js';
 import { SideQuests } from './sidequest.js';
-import { STORY } from '@fundive/shared/story.js';
+import { STORY, OMENS } from '@fundive/shared/story.js';
+import { makeFish } from '../engine/creatures.js';
+import { SPECIES } from '@fundive/shared/maps.js';
 import { Peers } from './netplay.js';
 import { MSG } from '@fundive/shared/protocol.js';
 import { CAUSTIC } from '../engine/materials.js';
@@ -48,6 +50,10 @@ export class DiveSession {
     this.found = new Set(); this._rescueT = 0;
     this.track = []; this.events = []; this._recT = 0;   // 复盘回放：轨迹采样 + 事件时间轴
     this._ffT = this._scheduleFreeflow();
+    // 宇宙排定的随机事件时刻表 + 事件副作用的衰减状态
+    this._evts = (this.uni.events || []).slice();
+    this._shake = 0; this._shoals = []; this._thermoT = 0; this._surge = null;
+    this._region = ''; this._regionT = 0;
     this._buildWorld();
     this._bindNet();
     // 触屏不建体感小人：小屏没地方放，还白养一个 WebGL 上下文
@@ -75,6 +81,95 @@ export class DiveSession {
     if (!this.uni.mods.freeflow) return -1;
     const rng = universeRng(this.map.id, this.o.seed + '::ff');
     return range(rng, 60, 200);
+  }
+
+  // 宇宙事件：一次性的环境突发——有声音、有震感、有台词，让玩家觉得"这个洞是活的"
+  _fireEvent(e) {
+    const p = this.player, audio = this.o.audio;
+    this.events.push({ t: +this._t.toFixed(1), k: 'event', ev: e.k });
+    switch (e.k) {
+      case 'rumble': {
+        this._shake = Math.min(1.2, this._shake + 0.9);
+        audio?.rumble?.();
+        this.talk('深处传来一阵低鸣——整个洞道轻轻晃了一下，又静了。');
+        break;
+      }
+      case 'rockfall': {
+        this._shake = Math.min(1.2, this._shake + 0.6);
+        audio?.rumble?.(); audio?.silt?.();
+        this.camera.getWorldDirection(_v);
+        const pos = p.pos.clone().addScaledVector(_v, 3.2);
+        pos.y += 1.4;
+        this.silt.burst(pos, 1.5, 4);
+        this.talk('前方有落石——泥沙正从洞顶泻下来，别硬穿。');
+        break;
+      }
+      case 'surge': {
+        const near = this.cave.nav?.closest?.(p.pos);
+        const dir = near?.tan ? near.tan.clone() : new THREE.Vector3(0, 0, -1);
+        if (this._ocean && this.map.ocean?.current) dir.set(...this.map.ocean.current);
+        dir.normalize();
+        const z = { pos: p.pos.clone(), dir, r: 20, strength: 2.0, type: 'stream', name: '突发激流' };
+        this.cave.flowZones.push(z);
+        this._surge = { t: 22, z };
+        audio?.whoosh?.();
+        this.talk('水流突然变强了——像远处有人开了一扇门。');
+        break;
+      }
+      case 'flicker': {
+        p.flickerT = 7;
+        this.talk('灯闪了一下——又好了。接触不良的老毛病。');
+        break;
+      }
+      case 'shoal': this._spawnShoal(); break;
+      case 'omen': {
+        const pool = OMENS[this._ocean ? 'ocean' : this._ice ? 'ice' : 'cave'] || OMENS.cave;
+        this.talk(pool[e.t % pool.length]);
+        break;
+      }
+      case 'thermocline': {
+        this._thermoT = 26;
+        this.water.setDensityScale(1.7);
+        this.talk('穿过一层冷水——视野糊了一片，像中间挂了层纱。');
+        break;
+      }
+      case 'creak': {
+        audio?.rumble?.();
+        this.talk('冰层在头顶发出长长的呻吟。它一直在动——只是慢得你看不见。');
+        break;
+      }
+      case 'cold_snap': {
+        this.cold = Math.min(1, this.cold + 0.06);
+        this.talk('一股寒流扫过——体温掉了一截。');
+        break;
+      }
+    }
+  }
+
+  // 鱼群横穿：一小群鱼从你面前掠过，几秒就散进黑暗里
+  _spawnShoal() {
+    const sp = this._ocean ? 'damselfish' : this._ice ? 'whitefish'
+      : (this.map.creatures || []).find(c => SPECIES[c]?.cat === 'fish') || 'cavefish';
+    const rng = universeRng(this.map.id, `${this.o.seed}::shoal${Math.floor(this._t)}`);
+    const g = new THREE.Group();
+    const fish = [];
+    for (let i = 0; i < 14; i++) {
+      const f = makeFish(sp, rng);
+      f.position.set(range(rng, -3.5, 3.5), range(rng, -1.1, 1.1), range(rng, -3.5, 3.5));
+      g.add(f); fish.push(f);
+    }
+    const p = this.player;
+    const fwd = new THREE.Vector3();
+    this.camera.getWorldDirection(fwd); fwd.y = 0;
+    if (fwd.lengthSq() < 0.01) fwd.set(0, 0, -1); else fwd.normalize();
+    const side = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    const dir = side.multiplyScalar(rng() > 0.5 ? 1 : -1).normalize();
+    g.position.copy(p.pos).addScaledVector(fwd, 7).addScaledVector(dir, -9);
+    g.position.y = p.pos.y + 0.4;
+    g.rotation.y = Math.atan2(-dir.z, dir.x);
+    this.scene.add(g);
+    this._shoals.push({ g, dir, fish, t: 0 });
+    this.talk('一团鱼群从你面前掠过——快得像一片云。');
   }
 
   _buildWorld() {
@@ -393,13 +488,16 @@ export class DiveSession {
     const breath = Math.sin(this._t * 1.1) * 0.004, kickBob = inp.kick ? Math.sin(this._t * 9) * 0.006 * Math.min(1, spd) : 0;
     _v.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
     const roll = -THREE.MathUtils.clamp(p.vel.dot(_v), -1.5, 1.5) * 0.02;
-    _e.set(p.pitch + Math.sin(this._t * 1.3) * wob + breath + kickBob, p.yaw + Math.sin(this._t * 0.9) * wob, Math.sin(this._t * 0.7) * wob * 0.6 + roll, 'YXZ');
+    const shake = this._shake * this._shake;   // 平方衰减：震一下，缓下来
+    _e.set(p.pitch + Math.sin(this._t * 1.3) * wob + breath + kickBob + Math.sin(this._t * 31) * 0.012 * shake,
+      p.yaw + Math.sin(this._t * 0.9) * wob + Math.sin(this._t * 27 + 1.7) * 0.01 * shake,
+      Math.sin(this._t * 0.7) * wob * 0.6 + roll + Math.sin(this._t * 23 + 0.6) * 0.008 * shake, 'YXZ');
     this.camera.quaternion.setFromEuler(_e);
 
     // —— 灯 ——
     const lit = p.lightOn || p.backupOn;
     // 灯故障：簇状眨停（接触不良的咳喘），不是逐帧白噪频闪
-    const flicker = p.blackoutT > 0 && Math.sin(this._t * 9.7) * Math.sin(this._t * 3.3) > 0.72 ? 0.25 : 1;
+    const flicker = (p.blackoutT > 0 || p.flickerT > 0) && Math.sin(this._t * 9.7) * Math.sin(this._t * 3.3) > 0.72 ? 0.25 : 1;
     const siltNow = this.silt.densityAt(p.pos);
     const power = p.backupOn && !p.lightOn ? 0.45 : 1;
     this.lamp.update(this.camera, { on: lit, power, flicker, silt: siltNow, volumetric: !!this.composer });
@@ -465,6 +563,36 @@ export class DiveSession {
     // —— 环境事件 ——
     if (this._ffT > 0) { this._ffT -= dt; if (this._ffT <= 0) { p.triggerFreeflow(audio); this.talk('调节器开始自由流——按 Q 换备用二级头'); } }
     if (this.uni.mods.blackout && !p._blacked && this._t > 30) { p._blacked = true; p.triggerBlackout(); this.talk('你的灯闪了一下。接触不良。'); }
+
+    // —— 宇宙排定的随机事件：同一宇宙所有人同一时刻撞上同一批事 ——
+    while (this._evts.length && this._evts[0].t <= this._t) this._fireEvent(this._evts.shift());
+    if (this._shake > 0) this._shake = Math.max(0, this._shake - dt * 0.55);
+    if (p.flickerT > 0) p.flickerT -= dt;
+    if (this._thermoT > 0) { this._thermoT -= dt; if (this._thermoT <= 0) this.water.setDensityScale(1); }
+    if (this._surge) {
+      this._surge.t -= dt;
+      if (this._surge.t <= 0) {
+        const zi = this.cave.flowZones.indexOf(this._surge.z);
+        if (zi >= 0) this.cave.flowZones.splice(zi, 1);
+        this._surge = null;
+      }
+    }
+    for (let i = this._shoals.length - 1; i >= 0; i--) {
+      const s = this._shoals[i];
+      s.t += dt;
+      s.g.position.addScaledVector(s.dir, dt * 1.4);
+      s.g.position.y += Math.sin(s.t * 0.8) * dt * 0.15;
+      for (const f of s.fish) f.userData.tail.rotation.y = Math.sin(s.t * 7 + f.position.x * 8) * 0.55;
+      if (s.t > 24) { this.scene.remove(s.g); this._shoals.splice(i, 1); }
+    }
+    // —— 区域名：走进具名洞厅/海区时亮一下地名，像手绘地图被点亮 ——
+    this._regionT -= dt;
+    let region = '';
+    for (const n of this.cave.nodes) {
+      if (n.name && p.pos.distanceTo(n.pos) < n.r + 2.5) { region = n.name; break; }
+    }
+    if (region && region !== this._region) { this._region = region; this._regionT = 7; hud.setRegion?.(tr(region)); }
+    else if (!region && this._regionT <= 0 && this._region) { this._region = ''; hud.setRegion?.(''); }
 
     // —— 结局条件：每种死法都先有"前兆"台词，让玩家觉得死是自己的选择 ——
     const siltD = this.silt.densityAt(p.pos);

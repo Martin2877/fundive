@@ -34,6 +34,7 @@ export class HUD {
         <span class="ctick" data-d="180">S</span><span class="ctick" data-d="225">SW</span><span class="ctick" data-d="270">W</span><span class="ctick" data-d="315">NW</span>
         <span class="cway" id="cmp-w">◆</span>
       </div><i class="ccaret"></i><em class="cdeg" id="cmp-h">0°</em></div>
+      <div id="region"></div>
       <div id="exitmk" style="opacity:0"></div>
       <div id="lineinfo"></div>
       <div id="hint"></div>
@@ -202,6 +203,7 @@ export class HUD {
     this._hintT = setTimeout(() => h.classList.remove('show'), sec * 1000);
   }
   setLineInfo(s) { this.$('#lineinfo').textContent = t(s); }
+  setRegion(name) { this.$('#region').textContent = name ? t(name) : ''; }
   setLineWord(w) { const el = this.el.querySelector('.corner.br .lbl'); if (el) el.textContent = t(w); }
   // 出口方位标记：把船/冰洞投到屏幕上的方位指示（x,y 像素；null 隐藏；hot=目标完成后的强调态）
   setExitMark(x, y, html, hot) {
