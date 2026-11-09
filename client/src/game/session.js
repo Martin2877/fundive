@@ -18,6 +18,7 @@ import { Peers } from './netplay.js';
 import { MSG } from '@fundive/shared/protocol.js';
 import { CAUSTIC } from '../engine/materials.js';
 import { DiverLamp } from '../engine/lamp.js';
+import { resolveLoadout } from '@fundive/shared/gear.js';
 import { makeComposer } from '../engine/postfx.js';
 import { buildSurface } from '../engine/surface.js';
 import { BodyAvatar } from '../ui/avatar.js';
@@ -57,7 +58,7 @@ export class DiveSession {
     this._buildWorld();
     this._bindNet();
     // 触屏不建体感小人：小屏没地方放，还白养一个 WebGL 上下文
-    this.avatar = opts.input.isTouch ? null : new BodyAvatar({ gear: opts.gear });
+    this.avatar = opts.input.isTouch ? null : new BodyAvatar({ gear: this.loadout?.gear || opts.gear });
     this._maskEl = document.getElementById('mask');
     this.hand = new DiveHand(this.camera);
     this.composer = makeComposer(opts.renderer, this.scene, this.camera);
@@ -192,7 +193,19 @@ export class DiveSession {
     this._ice = map.kind === 'ice';
     this.cold = 0;
     this.player = new Player((this.cave.spawnPos || this.cave.entryPos.clone().add(_v.set(0, -0.4, -1))).clone());
-    if (map.gas) { this.player.gas = this.player.gasMax = map.gas; }  // 深图背双瓶
+    // 装备间配装：气瓶/胶片/浮标/备灯/罗盘全听玩家摆的位；没走装备间（教学等）保持原默认
+    this.loadout = resolveLoadout(this.o.plan?.loadout, map, uni);
+    const lo = this.loadout, hasLO = !!this.o.plan?.loadout;
+    if (hasLO ? lo.gas != null : !!map.gas) this.player.gas = this.player.gasMax = hasLO ? lo.gas : map.gas;
+    this.player.compass = hasLO ? lo.compass : true;
+    this.player.gearDrag = lo.drag;
+    this.player.squeezeK = lo.squeezeK;
+    this.player.spareLamps = hasLO ? lo.spares : 1;
+    this.hasSMB = hasLO ? lo.smb > 0 : true;
+    this.hasCamera = hasLO ? lo.camera : true;
+    this.hasReel = hasLO ? lo.reel > 0 : true;
+    this.pony = hasLO ? lo.pony : 0;     // 应急瓶：主瓶见底自动接一次 45bar
+    if (hasLO) this.o.photos.film = lo.film;
     // 朝向洞内：看向前方约 10m 处的脊线（竖井地图会自然低头看向深渊）
     const sp = this.cave.mainSpine, ahead = sp[Math.min(sp.length - 1, Math.round(10 / (sp[1].s - sp[0].s || 1)))].p;
     _v.subVectors(ahead, this.player.pos);
@@ -388,7 +401,8 @@ export class DiveSession {
     // —— 离散动作 ——
     for (const a of inp.actions) {
       if (a === 'photo') {
-        if (!photos.active) { photos.open(); this.finderMode = true; }
+        if (this.hasCamera === false) { hud.hint('没带相机——摊摊手算了', 2); }
+        else if (!photos.active) { photos.open(); this.finderMode = true; }
         else this._takePhoto();
       } else if (a === 'interact') {
         const c = this._ctx();
@@ -406,7 +420,8 @@ export class DiveSession {
       else if (a === 'light') { p.lightOn = !p.lightOn; audio.ok(); }
       else if (a === 'backup') {
         if (p.freeflow > 0) { p.freeflow = 0; this.talk('你换上了备用二级头，嘶嘶声停了'); audio.ok(); }
-        else { p.backupOn = !p.backupOn; audio.ok(); }
+        else if (p.spareLamps > 0 || p.backupOn) { p.backupOn = !p.backupOn; audio.ok(); }
+        else hud.hint('没带备用灯', 1.6);
       }
       else if (a === 'line') this._toggleLineHold();
       else if (a === 'smb') this._deploySMB();
@@ -862,6 +877,7 @@ export class DiveSession {
       atExit: this.player.pos.distanceTo(this.cave.entryPos) < this.cave.entryR && this.player.pos.y > this.cave.entryPos.y - 0.5,
       mapId: this.map.id, universeName: universeName(this.o.seed),
       lightOn: this.player.lightOn || this.player.backupOn,
+      hasReel: this.hasReel !== false,
     };
   }
 
@@ -884,6 +900,7 @@ export class DiveSession {
 
   _deploySMB() {
     const hud = this.o.hud;
+    if (this.hasSMB === false) { hud.hint('没带浮标——回装备间挂一个再下水', 2); return; }
     if (!this._ocean) { hud.hint(this._ice ? '冰盖下放不了浮标——跟着安全绳回冰洞' : '洞里用不上浮标——跟着引绳才对'); return; }
     if (this.smb) { hud.hint('浮标已经在水面上了'); return; }
     if (this.player.depth() < 3) { hud.hint('太浅了——下到 3 米以下再放，让它飞一会儿'); return; }
@@ -965,6 +982,12 @@ export class DiveSession {
       this.talk('气瓶空了——好在这里是海，你还能浮在水面。游回船边，或者放浮标（C）等人看见你。');
       return;
     }
+    // 应急瓶：主瓶见底的最后一次机会（45bar，用一次就没）
+    if (id === 'out_of_air' && this.pony > 0) {
+      this.pony--; this.player.gas = 45; this.player.dead = null;
+      this.talk('主瓶嘶嘶地空了——应急瓶接上，最后 45 bar。回家。');
+      return;
+    }
     // 潜伴在最后一口气时出现 -> 获救
     if (id === 'out_of_air' && this.buddy && !this.buddy.lost && this.buddy.obj.position.distanceTo(this.player.pos) < 5) {
       this.player.gas = 20;
@@ -1011,7 +1034,8 @@ export class DiveSession {
       t: 0, kind: world.kind, far: !!exitDef.far, signal: !!exitDef.signal,
       from: this.player.pos.clone(), to: world.standPos,
       yaw: world.face ?? this.player.yaw, pitch: 0.18,
-      wait: exitDef.wait ?? 7, signaled: 0, signalT: 0,
+      // 救生哨让岸上接应来得快一些
+      wait: (exitDef.wait ?? 7) * (this.loadout?.whistle ? 0.6 : 1), signaled: 0, signalT: 0,
       ending: exitDef.ending || (() => this._exitEnding()),
       world,
     };

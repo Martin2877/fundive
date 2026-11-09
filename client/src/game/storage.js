@@ -5,10 +5,11 @@ const ALBUM_MAX = 60;
 function load() {
   try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; }
 }
-function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { } }
+function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { } store._onSave?.(); }
 
 export const store = {
   get data() { return load(); },
+  _onSave: null,   // 存档变更钩子（账号云同步挂这里）
 
   addPhoto(ph) {
     const d = load();
@@ -47,6 +48,14 @@ export const store = {
     save(d);
   },
 
+  // 装备间配装偏好：每张图记住上次的摆法（账号上云后跨设备带着走）
+  setGear(mapId, g) {
+    const d = load();
+    d.gears = d.gears || {};
+    d.gears[mapId] = g;
+    save(d);
+  },
+
   addEnding(id) {
     const d = load();
     d.endings = d.endings || {};
@@ -74,6 +83,21 @@ export const store = {
       d.stats.universes.push(stat.universe);
       if (d.stats.universes.length > 80) d.stats.universes.shift();
     }
+    save(d);
+  },
+
+  // 复盘回放：留最近几潜的完整轨迹（账号上云时也带它）
+  addReplay(result) {
+    if (!result?.replay?.track?.length) return;
+    const d = load();
+    d.replays = d.replays || [];
+    d.replays.unshift({
+      mapId: result.mapId, seed: result.seed, universe: result.universe,
+      ending: result.ending, objectiveDone: result.objectiveDone,
+      stats: result.stats, at: Date.now(),
+      replay: result.replay,
+    });
+    if (d.replays.length > 6) d.replays.length = 6;
     save(d);
   },
 };

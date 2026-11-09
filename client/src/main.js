@@ -8,7 +8,10 @@ import { PhotoSystem } from './game/photo.js';
 import { Net } from './game/netplay.js';
 import { SupaNet, supabaseConfigured } from './game/netplay_supa.js';
 import { DiveSession } from './game/session.js';
-import { showMenu, showLobby, showPlan, showDebrief, showGallery, showPause, showCourses, showLessonResult } from './ui/screens.js';
+import { showMenu, showLobby, showPlan, showDebrief, showGallery, showPause, showCourses, showLessonResult, showBoard } from './ui/screens.js';
+import { showLoadout } from './ui/loadout.js';
+import { whimLoadout } from '@fundive/shared/gear.js';
+import { account } from './game/account.js';
 import { showReplay } from './ui/replay.js';
 import { TrainingSession } from './game/training.js';
 import { getCourse, getLesson } from '@fundive/shared/courses.js';
@@ -23,9 +26,22 @@ import { makeUniverse } from '@fundive/shared/universe.js';
 import { getMap } from '@fundive/shared/maps.js';
 import { STORY } from '@fundive/shared/story.js';
 import { t, getLang, setLang, detectLang } from '@fundive/shared/i18n.js';
+import { VERSION, channelUrl } from './version.js';
 
 setLang(detectLang(store.data.settings?.lang));
 document.title = t('DeepLog · 深蓝手账');
+account.init();   // 账号握手（IP 绑定，云端档案）——失败自动落本地，不阻塞菜单
+
+// 版本通道记忆：选过预览版的玩家下次打开自动跳到预览部署；默认稳定版。
+// ?ch=stable|preview 是跨部署带过来的选择——先落本地再判断跳不跳，防止两边偏好互相顶牛。
+{ const q = new URLSearchParams(location.search).get('ch');
+  if (q === 'stable' || q === 'preview') {
+    store.setSetting('channel', q);
+    history.replaceState(null, '', location.pathname);
+  }
+  const want = store.data.settings?.channel;
+  const hop = want && want !== VERSION.channel ? channelUrl(want) : null;
+  if (hop) location.replace(`${hop}?ch=${want}`); }
 
 // —— 渲染器 ——
 const canvas = document.getElementById('c');
@@ -154,6 +170,7 @@ function menu() {
       });
     },
     onGallery: () => gallery(menu),
+    onBoard: () => showBoard({ onBack: menu }),
     onTrain: () => courses(),
     audio,
   });
@@ -203,10 +220,23 @@ function startTraining(cid, lid) {
   session.start();
 }
 
+// 潜点详情 -> (装备准备 | 临时起意) -> 下水
 function plan(mapId, seed, multiplayer, netPlayers = []) {
   showPlan(mapId, seed, {
     multiplayer,
-    onDive: (pl) => startDive({ mapId, seed, plan: pl, solo: !multiplayer, netPlayers }),
+    onGear: () => showLoadout(mapId, seed, {
+      multiplayer,
+      onDive: (pl) => startDive({ mapId, seed, plan: pl, solo: !multiplayer, netPlayers }),
+      onBack: () => plan(mapId, seed, multiplayer, netPlayers),
+    }),
+    onDive: (pl) => {
+      // 临时起意：固定基础装 + 随机彩蛋（可能忘带小件），折返线低、深度不限
+      if (pl?.whim) {
+        const w = whimLoadout(getMap(mapId), seed);
+        pl = { ...pl, turnGas: 70, planDepth: 0, loadout: w.gear, notes: w.notes };
+      }
+      startDive({ mapId, seed, plan: pl, solo: !multiplayer, netPlayers });
+    },
     onBack: menu,
   });
 }
@@ -220,6 +250,8 @@ function startDive({ mapId, seed, plan: pl, solo, netPlayers }) {
   backdrop?.dispose(); backdrop = null;
   document.getElementById('app').innerHTML = '';
   if (net.connected) net.diving = true;
+  photos.film = 24;          // 默认值——配装存在时 session 会按装备覆盖
+  photos.shots = [];
   session = new DiveSession({
     renderer, input, audio, hud, talk, photos, net: net.connected ? net : null,
     mapId, seed, solo, netPlayers,
@@ -239,8 +271,7 @@ function startDive({ mapId, seed, plan: pl, solo, netPlayers }) {
       finish(result);
     },
   });
-  photos.film = 24;
-  photos.shots = [];
+  if (pl?.notes?.length) talk.say(t('临时起意：{n}', { n: pl.notes.join('，') }), 5.5);
   // 非触屏时提示锁定鼠标；触屏给一套操作提示
   const _k = getMap(mapId).kind;
   if (!input.isTouch) hud.hint(_k === 'ocean' ? '点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓锚绳 · C 浮标' : _k === 'ice' ? '点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓安全绳' : '点一下画面锁定鼠标 · WASD 游动 · F 拍照 · G 抓引绳', 5);
@@ -260,6 +291,7 @@ function finish(result) {
     salvage: (store.data.stats?.salvage || 0) + (result.objectiveDone && result.objectiveType === 'salvage' ? 1 : 0),
     universe: result.seed,
   });
+  store.addReplay(result);   // 复盘回放存档（账号上云时会带它）
   if (net.connected && net.room) {
     net.gameOver({ ending: result.ending, name: net.name, objectiveDone: result.objectiveDone });
   }
@@ -284,7 +316,7 @@ function renderDebrief(result) {
 }
 
 function gallery(back) {
-  showGallery({ onBack: back, onLearn: () => courses() });
+  showGallery({ onBack: back, onLearn: () => courses(), onReplay: (r) => showReplay(r, { onBack: () => gallery(back) }) });
 }
 
 function cleanupSession() {

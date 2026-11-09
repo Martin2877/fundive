@@ -20,6 +20,7 @@ npm run build      # 构建 client -> client/dist
 npm start          # 生产：8790 端口托管 dist + /ws 联机
 # 静态部署（Cloudflare Pages 等）：build=npm run build, output=client/dist, Node20
 #   联机 ws 端点 = 构建期 VITE_WS_URL，未配置走同源 /ws（静态托管时组队自动回落单机）
+#   版本通道：VITE_CHANNEL=stable|preview + VITE_STABLE_URL/VITE_PREVIEW_URL（双部署互跳地址）
 npm run smoke      # 冒烟测试：宇宙生成确定性 + ws 协议全流程
 npm test           # worldtest（世界生成/碰撞与可见洞壁一致性）+ smoke + i18n 覆盖检查
 npm run i18n       # 列出缺英文翻译的中文字符串
@@ -88,7 +89,38 @@ route 节点 `p:[x, 离海底高度, z]`（`abs:true` 绝对 y，`surface:true` 
 ## 复盘回放
 
 session.js 每 0.5s 采样轨迹 `[t,x,y,z,gas,ascRate]` 并把 talk/emit 事件记入时间轴，结算时放进 `result.replay`；
-`ui/replay.js` 画俯视路线 + 深度剖面，支持拖动/倍速。
+`ui/replay.js` 画俯视路线 + 深度剖面，支持拖动/倍速。`store.addReplay` 把最近 6 潜整份存进
+`store.replays`（图鉴「复盘回放」页可点播，也随账号上云）。
+
+## 版本与发布
+
+版本号唯一真源 = 根 `package.json#version`（client/server 保持同号）。`client/vite.config.js`
+构建期注入 `VITE_APP_VERSION/VITE_CHANNEL/VITE_COMMIT`；`client/src/version.js` 导出
+`VERSION/channelUrl`。菜单右下角版本 chip 点开通道切换（stable↔preview）：选中的通道存
+`store.settings.channel`，跳目标部署时带 `?ch=` 参数落地写偏好——双部署各记各的偏好不打架；
+未配 `VITE_PREVIEW_URL` 时切换键出提示不跳。`.github/workflows/release.yml`：main 上 version
+比最新 v* tag 新 → 自动打 tag + 稳定 Release（附 dist zip）；preview 分支推送 →
+`v<ver>-pre.<run>` prerelease。仓库 Variables 配 `VITE_STABLE_URL/VITE_PREVIEW_URL/VITE_WS_URL`，
+Secrets 配 `VITE_SUPABASE_*` 烘进构建。
+
+## 账号与玩家榜
+
+`server/supabase.sql`（Supabase SQL Editor 跑一次）：`divers` 表按 IP 建档，RLS 全开、无直读策略，
+只暴露 3 个 SECURITY DEFINER RPC——`fd_hello`(认领/同步)、`fd_board`(榜，只回公开汇总字段)、`fd_reset`。
+`client/src/game/account.js`：启动 `account.init()` 按 IP 认领/建档，远端有档案则覆盖本地（相册只存本机）；
+`store._onSave` 钩子延迟 2.5s 合并上云。昵称在玩家榜页可改，重置=删云端行+清 localStorage。
+未配 `VITE_SUPABASE_*` 或 RPC 缺失时静默落本地模式，游戏照常。
+综合分 = 潜水×2 + 图鉴×10 + 章节×15 + 课程星×3（前后端同一公式：SQL `fd_score` / screens.js `scoreOf`）。
+
+## 装备间
+
+地图流程：潜点详情(showPlan，纯信息) -> 装备准备(showLoadout, ui/loadout.js) -> 下水；
+「临时起意」跳过准备：`whimLoadout(map, seed)` 固定基础装 + 随机忘带小件（talk.say 播报），
+折返线低、深度不限。`shared/gear.js`：GEAR 物品表（气瓶/灯/相机/浮标/线轮/刀/指北针/应急瓶/哨子）
++ SLOTS 槽位表（% 坐标）+ `resolveLoadout`(校验归并->gas/film/smb/reel/spares/drag/squeezeK/problems)
++ `defaultLoadout`。配装存 `store.gears[mapId]` 随账号上云。session 按 loadout 覆盖
+gasMax/photos.film/hasSMB/hasCamera/hasReel/player.spareLamps/compass/gearDrag/squeezeK/pony/whistle；
+无 loadout（教学/旧入口）保持原默认。侧挂瓶 `gear:'smt'` 走体感小人既有渲染。
 
 ## 教学模式
 

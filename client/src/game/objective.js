@@ -142,6 +142,15 @@ export class Objective {
         break;
       }
       case 'survey': {
+        // 没带线轮：标记挂不上去——贴近标记石时提醒一次
+        if (ctx.hasReel === false) {
+          this._nrT = (this._nrT || 0) + dt;
+          if (this._nrT > 6 && this.legs.some(l => !l.hit && player.pos.distanceTo(l.obj.position) < 4)) {
+            this._nrT = 0;
+            return '没带线轮——标记挂不上去，这目标今天做不了';
+          }
+          break;
+        }
         let justHit = 0;
         for (const leg of this.legs) {
           if (!leg.hit && player.pos.distanceTo(leg.obj.position) < 1.6) { leg.hit = true; justHit++; }

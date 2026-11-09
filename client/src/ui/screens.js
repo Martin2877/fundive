@@ -10,6 +10,8 @@ import { t, tl, getLang } from '@fundive/shared/i18n.js';
 import { STORY, storyOf } from '@fundive/shared/story.js';
 import { MSG, MAX_DIVERS } from '@fundive/shared/protocol.js';
 import { surveyCard } from './survey.js';
+import { account } from '../game/account.js';
+import { VERSION, channelKey, versionLabel, channelUrl } from '../version.js';
 
 const app = () => document.getElementById('app');
 const el = (html) => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; };
@@ -46,7 +48,7 @@ const DISCS = [
   { id: 'ice',   name: '冰潜', en: 'Ice Diving',   sub: '冰盖·冰山·失温', icon: '❆', ac: '#bfe8f5' },
   { id: 'train', name: '教学', en: 'Dive School',  sub: 'OW·AOW·战术·生物', icon: '✎', ac: '#ffd27f' },
 ];
-export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio }) {
+export function showMenu({ onSolo, onLobby, onBoard, onGallery, onTrain, onPreview, audio }) {
   clear();
   const saved = store.data.settings?.menu || {};
   let disc = DISCS.some(d => d.id === saved.disc) ? saved.disc : 'cave';
@@ -64,6 +66,7 @@ export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio
           <h1 class="title" style="font-size:clamp(28px,4.6vw,42px)">${t('深蓝手账')}<small style="font-size:.36em;margin-left:12px;color:var(--dim);letter-spacing:.12em">${getLang() === 'en' ? '深蓝手账' : 'DeepLog'}</small></h1>
         </div>
         <div class="m-sys">
+          <button class="btn small" id="board">${t('玩家榜')}</button>
           <button class="btn small" id="lobby">${t('组队潜水')}</button>
           <button class="btn small" id="gallery">${t('图鉴')}</button>
           <a class="btn small gh-ic" href="${GH_URL}" target="_blank" rel="noopener noreferrer" title="GitHub" aria-label="GitHub">${GH_SVG}</a>
@@ -103,7 +106,7 @@ export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio
         </details>
       </div>
       <div class="m-cta">
-        <button class="btn primary big" id="solo">${t('单人潜水')} →</button>
+        <button class="btn primary big" id="solo">${t('潜水')} →</button>
         <button class="btn primary big" id="gotrain" hidden>${t('进入课程表')} →</button>
       </div>
       <details class="m-about"><summary>${t('关于深蓝手账')}</summary>
@@ -114,6 +117,18 @@ export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio
           <a class="mlink" href="${GH_ISSUES}" target="_blank" rel="noopener noreferrer">${t('反馈问题 / 提建议')}</a>
         </div>
       </details>
+      <div class="m-ver">
+        <button class="ver-chip" id="ver" aria-expanded="false">${versionLabel()} · ${t(channelKey())}</button>
+        <div class="ver-pop" id="verpop" hidden>
+          <div class="vp-r"><span>${t('版本')}</span><b>${versionLabel()}${VERSION.sha ? ` <code>${VERSION.sha}</code>` : ''}</b></div>
+          <div class="vp-r"><span>${t('通道')}</span><b>${t(channelKey())}</b></div>
+          <div class="vp-ch">
+            <button data-ch="stable" class="${VERSION.channel === 'preview' ? '' : 'on'}">${t('稳定版')}<small>${t('正式更新 · 默认')}</small></button>
+            <button data-ch="preview" class="${VERSION.channel === 'preview' ? 'on' : ''}">${t('预览版')}<small>${t('更频繁的尝鲜更新')}</small></button>
+          </div>
+          <div class="vp-note" id="vernote"></div>
+        </div>
+      </div>
     </div></div>`);
   app().appendChild(scr);
   scr.querySelector('.panel').focus({ preventScroll: true });
@@ -215,8 +230,24 @@ export function showMenu({ onSolo, onLobby, onGallery, onTrain, onPreview, audio
     e.target.textContent = t('已复制');
     setTimeout(() => { e.target.textContent = t('复制坐标'); }, 1200);
   };
+  // 版本通道切换：选了另一通道就记住偏好并跳对应部署；未配置目标地址时提示
+  const verPop = scr.querySelector('#verpop'), verNote = scr.querySelector('#vernote');
+  scr.querySelector('#ver').onclick = (e) => {
+    verPop.hidden = !verPop.hidden;
+    e.currentTarget.setAttribute('aria-expanded', String(!verPop.hidden));
+  };
+  scr.querySelectorAll('[data-ch]').forEach(b => b.onclick = () => {
+    const ch = b.dataset.ch;
+    const cur = VERSION.channel === 'preview' ? 'preview' : 'stable';
+    if (ch === cur) { verPop.hidden = true; return; }
+    const url = channelUrl(ch);
+    if (!url) { verNote.textContent = t(ch === 'preview' ? '预览版部署未配置（VITE_PREVIEW_URL）——先在 Cloudflare 开个 preview 分支' : '稳定版地址未配置（VITE_STABLE_URL）'); return; }
+    store.setSetting('channel', ch);
+    location.href = `${url}?ch=${ch}`;
+  });
   scr.querySelector('#solo').onclick = () => onSolo(mapId, seed);
   scr.querySelector('#lobby').onclick = () => onLobby(mapId, seed);
+  scr.querySelector('#board').onclick = () => onBoard?.(mapId, seed);
   scr.querySelector('#gallery').onclick = onGallery;
 }
 
@@ -347,32 +378,101 @@ export function showLobby(net, { onStart, onBack, init }) {
   $('#go').onclick = () => net.start();
 }
 
-// ———————— 潜水计划 ————————
-export function showPlan(mapId, seed, { multiplayer = false, onDive, onBack }) {
+// ———————— 玩家榜 · 我的档案 ————————
+// 账号与 IP 绑定、免登录：昵称可改，档案（图鉴/章节/课程/生涯/回放）上云，照片相册只存本机。
+const scoreOf = (d) => {
+  const stars = Object.values(d.courses || {}).reduce((s, c) => s + Object.values(c).reduce((x, l) => x + (l.stars || 0), 0), 0);
+  return (d.stats?.dives || 0) * 2 + Object.keys(d.codex || {}).length * 10 + Object.keys(d.chapters || {}).length * 15 + stars * 3;
+};
+
+export function showBoard({ onBack }) {
+  clear();
+  const d = store.data;
+  const me = {
+    name: d.settings?.name || '',
+    dives: d.stats?.dives || 0,
+    codex: Object.keys(d.codex || {}).length,
+    chapters: Object.keys(d.chapters || {}).length,
+    stars: Object.values(d.courses || {}).reduce((s, c) => s + Object.values(c).reduce((x, l) => x + (l.stars || 0), 0), 0),
+    score: scoreOf(d),
+  };
+  const scr = el(`
+    <div class="screen"><div class="panel" style="width:min(680px,94vw)">
+      <div class="k">${t('玩家榜')}</div>
+      <h1 class="title" style="font-size:34px">${t('潜伴档案馆')}</h1>
+      <div class="acct">
+        <div class="row" style="gap:10px">
+          <input type="text" id="aname" placeholder="${t('给自己起个潜名')}" maxlength="12" value="${me.name.replace(/"/g, '&quot;')}" style="width:180px">
+          <button class="btn small" id="savename">${t('保存昵称')}</button>
+          <span class="sub" id="syncst" style="font-size:11.5px"></span>
+        </div>
+        <div class="sub" id="acctst" style="font-size:12px;margin-top:8px"></div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn small" id="resetacct" style="border-color:rgba(255,159,143,.4);color:#ffb3a8">${t('重置账号')}</button>
+        </div>
+      </div>
+      <div class="sub" style="margin:10px 0 4px;font-size:12px">${t('同 IP 即同号，免登录；图鉴/章节/课程/生涯/最近回放同步到云端，照片相册只存本机。')}</div>
+      <div id="boardbox"><div class="sub" style="font-size:12.5px">${t('载入中…')}</div></div>
+      <div class="row" style="margin-top:14px"><button class="btn small" id="back">${t('回菜单')}</button></div>
+    </div></div>`);
+  app().appendChild(scr);
+  const $ = (s) => scr.querySelector(s);
+
+  $('#acctst').innerHTML = t('潜水 {dv} 次 · 图鉴 {cx} 种 · 章节 {cp} 章 · 课程星 {st} · 综合分 {sc}', {
+    dv: me.dives, cx: me.codex, cp: me.chapters, st: me.stars, sc: me.score });
+  const updSt = () => { $('#syncst').textContent = account.cloud ? t('云端已绑定 IP · 同步正常') : account.configured ? t('云端未连通——档案先记本机') : t('本地档案（部署未配 Supabase）'); };
+  updSt();
+
+  $('#savename').onclick = async () => {
+    const n = $('#aname').value.trim();
+    if (!n) return;
+    await account.setName(n);
+    $('#savename').textContent = t('已保存');
+    setTimeout(() => { $('#savename').textContent = t('保存昵称'); }, 1200);
+    updSt();
+  };
+  $('#resetacct').onclick = () => {
+    if (confirm(t('重置账号：删掉云端档案和本机所有记录（图鉴/照片/回放/课程），不可恢复。确定？'))) account.reset();
+  };
+
+  (async () => {
+    const rows = await account.board();
+    const myRow = { name: me.name || t('（未命名）'), score: me.score, dives: me.dives, codex: me.codex, chapters: me.chapters, stars: me.stars, _me: 1 };
+    const list = rows?.length ? rows.map(r => ({ ...r })) : [];
+    // 云端没有我（新号/改过名）就把本地行插到最前面
+    if (!rows?.some(r => me.name && r.name === me.name)) list.unshift(myRow);
+    $('#boardbox').innerHTML = `
+      ${!account.cloud ? `<div class="sub" style="font-size:11.5px;color:var(--dim);margin-bottom:6px">${account.configured ? t('连不上云端榜——先看你自己的') : t('玩家榜需要配置 Supabase（server/supabase.sql 跑一次即可）——现在只有你自己')}</div>` : ''}
+      <table class="steps-table board"><thead><tr>
+        <th>#</th><th>${t('潜名')}</th><th>${t('潜水')}</th><th>${t('图鉴')}</th><th>${t('章节')}</th><th>${t('课程星')}</th><th>${t('综合分')}</th>
+      </tr></thead><tbody>${list.map((r, i) => `<tr${(r._me || (me.name && r.name === me.name)) ? ' class="me"' : ''}>
+        <td>${i + 1}</td><td>${(r.name || t('潜水员')).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</td><td>${r.dives ?? 0}</td><td>${r.codex ?? 0}</td><td>${r.chapters ?? 0}</td><td>${r.stars ?? 0}</td><td><b style="color:var(--lagoon)">${r.score ?? 0}</b></td>
+      </tr>`).join('')}</tbody></table>`;
+  })();
+
+  $('#back').onclick = onBack;
+}
+
+// ———————— 潜点详情 ————————
+// 纯信息页：地图档案 + 本宇宙条件 + 剧情简报 + 手绘测图。
+// 「装备准备」进装备间配装后按计划下水；「临时起意」不做准备直接下水。
+export function showPlan(mapId, seed, { multiplayer = false, onDive, onGear, onBack }) {
   clear();
   const map = MAPS.find(m => m.id === mapId);
   const uni = makeUniverse(mapId, seed);
   const sty = storyOf(mapId, uni);   // 本宇宙的剧情讲法（storyVar 决定变体）
-  const minD = Math.min(5, map.maxDepth), defD = Math.max(minD, Math.round(map.maxDepth * 0.7));
+  const kindName = { cave: '洞潜', ocean: '海潜', ice: '冰潜' }[map.kind || 'cave'];
   const scr = el(`
     <div class="screen"><div class="panel" style="width:min(620px,94vw)">
-      <div class="k">${t('潜水计划')} · ${mapName(map)}</div>
-      <h1 class="title" style="font-size:38px">${universeName(seed)}</h1>
+      <div class="k">${t('潜点详情')} · ${t(kindName)}</div>
+      <h1 class="title" style="font-size:36px">${mapName(map)}<small style="font-size:.42em;margin-left:12px;color:var(--dim)">${altName(map)}</small></h1>
+      <div class="sub" style="font-size:12.5px;margin:2px 0 0">${t(map.sub)} · ${DIFF[map.difficulty]} · ${t('最深')} ${map.maxDepth}m
+        <span style="color:var(--dim)">　${t(map.basedOn)}</span></div>
       <div class="flavor">${uniBrief(uni, map)}${uni.flavor.map(f => `<span>${t(f)}</span>`).join('')}</div>
-      <div class="sub" style="margin:8px 0"><b style="color:var(--lagoon)">${OBJECTIVE_DEFS[uni.objective.type].icon} ${t('本次目标：')}</b>${objectiveText(uni)}<br>
-      <span style="font-size:12px;color:var(--dim)">${t(map.basedOn)}</span></div>
-      ${sty ? `<div class="story"><b>${t(sty.title)}</b>${sty.briefing.map(l => `<div>${t(l)}</div>`).join('')}${uni.sides.length ? `<div class="dim">${t('本次宇宙有 {n} 个支线机缘，随缘遇见。', { n: uni.sides.length })}</div>` : ''}</div>` : ''}
-      <div class="plan-grid">
-        <div class="cell"><div class="v" id="pg">140</div><div class="l">${t('折返气压 bar —— 三分之一法则')}</div></div>
-        <div class="cell"><div class="v" id="pd">${defD}</div><div class="l">${t('计划深度 m')}</div></div>
-        <div class="cell"><div class="v">2×12L</div><div class="l">${t('双瓶 · 主灯×1 备灯×1')}</div></div>
-      </div>
-      <div class="row" style="gap:18px;margin:6px 0">
-        <label class="sub" style="font-size:12.5px">${t('折返气压')} <input type="range" id="rg" min="100" max="180" value="140" style="vertical-align:middle"></label>
-        <label class="sub" style="font-size:12.5px">${t('计划深度')} <input type="range" id="rd" min="${minD}" max="${map.maxDepth}" value="${defD}" style="vertical-align:middle"> <span style="color:var(--dim)">${minD}–${map.maxDepth}m</span></label>
-      </div>
-      <div class="sub" style="font-size:11.5px;margin:2px 0 6px">${t('折返气压：气压降到这条线就该掉头，HUD 气量条上有橙色标记。计划深度：超过它 2 米会提醒你回头，HUD 上也会显示。深度越大，氮醉和减压压力越大。')}</div>
-      <div class="sub" id="kit" style="font-size:12.5px;line-height:2;margin:10px 0"></div>
+      <div class="sub" style="margin:6px 0;font-size:13.5px"><b style="color:var(--lagoon)">${OBJECTIVE_DEFS[uni.objective.type].icon} ${t('本次目标：')}</b>${objectiveText(uni)}
+        ${uni.sides.length ? `<span style="color:var(--dim);font-size:12px">　${t('另有 {n} 个支线机缘', { n: uni.sides.length })}</span>` : ''}</div>
+      ${sty ? `<div class="story"><b>${t(sty.title)}</b>${sty.briefing.map(l => `<div>${t(l)}</div>`).join('')}</div>` : ''}
+      <div id="svslot"></div>
       ${(map.kind || 'cave') === 'cave' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：回入口天坑浮出水面——岸上没人接应，挥手（3）或吹哨呼喊（E）让他们找到你；水面上按 W 随时潜回去。')}</div>` : ''}
       ${map.kind === 'ocean' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：回到潜水船 10 米内浮出水面即撤离成功；离船太远就先在水下 3 米以下放浮标（C），船会来找浮标。')}</div>` : ''}
       ${map.kind === 'ice' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：头顶只有冰——沿安全绳回冰洞，从下来的那个洞出水。')}</div>` : ''}
@@ -389,9 +489,9 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onBack }) {
         }).join(' ');
         return `<div class="sub" style="margin:6px 0;font-size:12px">${t('这张图用得上的课：')}${chips}</div>`;
       })()}
-      <div class="row" style="margin-top:8px">
-        <button class="btn primary" id="dive">${t('按计划下水')}</button>
-        <button class="btn" id="whim" title="${t('不做计划：折返线很低、深度不设限——更刺激，也更危险')}">${t('临时起意')}</button>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" id="gear">${t('装备准备')} →</button>
+        <button class="btn" id="whim" title="${t('抓起装备就走：固定基础装，可能忘带小件——折返线低、深度不限')}">${t('临时起意')} →</button>
         <button class="btn small" id="back">${t('今天不下了')}</button>
       </div>
       ${multiplayer ? `<div class="sub" style="margin-top:10px;font-size:12px;color:var(--lagoon)">${t('潜伴们正在同一个宇宙里等你。')}</div>` : ''}
@@ -399,14 +499,9 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onBack }) {
   app().appendChild(scr);
   const $ = (s) => scr.querySelector(s);
   // 前人手绘测图：探明的路线轮廓 + 支洞标注，可放大看细节（中英标注可切换）
-  const planGrid = $('.plan-grid');
-  if (planGrid && map.route?.length > 1) planGrid.before(surveyCard(map, uni));
-  const kit = map.kind === 'ocean' ? ['锚绳（上升时抓住它）', '主灯 + 备用灯', '备用二级头', '潜水计划（贴在手腕上）', '相机（24 张胶片）'] : ['引导绳 & 线轮', '主灯 + 备用灯', '备用二级头', '潜水计划（贴在手腕上）', '相机（24 张胶片）'];
-  $('#kit').innerHTML = kit.map(k => `<label><input type="checkbox" checked disabled> ${t(k)}</label>`).join('　');
-  const upd = () => { $('#pg').textContent = $('#rg').value; $('#pd').textContent = $('#rd').value; };
-  $('#rg').oninput = upd; $('#rd').oninput = upd; upd();
-  $('#dive').onclick = () => onDive({ turnGas: +$('#rg').value, planDepth: +$('#rd').value, whim: false });
-  $('#whim').onclick = () => onDive({ turnGas: 70, planDepth: 0, whim: true });
+  if (map.route?.length > 1) $('#svslot').replaceChildren(surveyCard(map, uni));
+  $('#gear').onclick = () => onGear?.();
+  $('#whim').onclick = () => onDive({ whim: true });
   $('#back').onclick = onBack;
 }
 
@@ -460,7 +555,7 @@ export function showDebrief(result, { onRetry, onNewUniverse, onMenu, onGallery,
 
 // ———————— 图鉴 ————————
 const CATS = [['all', '全部'], ['fish', '鱼类'], ['amph', '两栖'], ['reptile', '爬行'], ['artifact', '人文'], ['invert', '无脊椎'], ['plant', '植物'], ['microbe', '微生物'], ['geo', '地质']];
-export function showGallery({ onBack, onLearn }) {
+export function showGallery({ onBack, onLearn, onReplay }) {
   clear();
   const d = store.data;
   const codex = d.codex || {}, endings = d.endings || {}, album = d.album || [];
@@ -490,6 +585,14 @@ export function showGallery({ onBack, onLearn }) {
   const phList = album.length
     ? album.map(p => `<div class="ph"><img src="${p.thumb}"><span class="c">${p.sp ? spName(p.sp) + ' ' + '★'.repeat(p.stars) : t('废片')} · ${p.universe || ''}</span></div>`).join('')
     : `<div class="sub">${t('还没有照片。下水按 F 拍照。')}</div>`;
+  const replays = d.replays || [];
+  const rpList = replays.length
+    ? replays.map((r, i) => `<button class="map rp" data-rp="${i}">
+        <span class="tag">${t(ENDINGS[r.ending]?.name || '')}</span>
+        <span class="diff">${mmss(r.stats?.time || 0)} · ↓${r.stats?.maxDepth ?? 0}m</span>
+        <span class="n">${mapName(MAPS.find(m => m.id === r.mapId))}<small>${r.universe}</small></span>
+        <span class="d">${new Date(r.at).toLocaleString()} · ${t('照片')} ${r.stats?.photos ?? 0} · ${r.objectiveDone ? t('目标完成') : t('未完成')}</span></button>`).join('')
+    : `<div class="sub">${t('还没有可回放的潜水——潜完一局自动存在这里。')}</div>`;
   const scr = el(`
     <div class="screen"><div class="panel" style="width:min(780px,96vw)">
       <div class="k">${t('手账')}</div>
@@ -498,6 +601,7 @@ export function showGallery({ onBack, onLearn }) {
         <button class="btn small" data-t="sp">${t('物种图鉴')} ${found}/${all.length}</button>
         <button class="btn small" data-t="ph">${t('照片相册')}</button>
         <button class="btn small" data-t="en">${t('结局图鉴')}</button>
+        <button class="btn small" data-t="rp">${t('复盘回放')}</button>
         <button class="btn small" data-t="lo">${t('前人手记')}</button>
         ${onLearn ? `<button class="btn small" id="learn">${t('去上生物课')}</button>` : ''}
       </div>
@@ -507,13 +611,15 @@ export function showGallery({ onBack, onLearn }) {
       </div>
       <div id="tab-ph" hidden><div class="album">${phList}</div></div>
       <div id="tab-en" hidden><div class="codex">${enList}</div></div>
+      <div id="tab-rp" hidden><div class="maps" style="height:auto;max-height:48vh">${rpList}</div></div>
       <div id="tab-lo" hidden><div class="codex">${loreList}</div></div>
       <div class="row" style="margin-top:16px"><button class="btn" id="back">${t('返回')}</button></div>
     </div></div>`);
   app().appendChild(scr);
   scr.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
-    ['sp', 'ph', 'en', 'lo'].forEach(k => scr.querySelector('#tab-' + k).hidden = k !== b.dataset.t);
+    ['sp', 'ph', 'en', 'rp', 'lo'].forEach(k => scr.querySelector('#tab-' + k).hidden = k !== b.dataset.t);
   });
+  scr.querySelectorAll('[data-rp]').forEach(b => b.onclick = () => onReplay?.(replays[+b.dataset.rp]));
   scr.querySelectorAll('#cats button').forEach(b => b.onclick = () => {
     scr.querySelectorAll('#cats button').forEach(x => x.classList.toggle('on', x === b));
     scr.querySelectorAll('#spgrid .it').forEach(it => { it.hidden = b.dataset.k !== 'all' && it.dataset.c !== b.dataset.k; });

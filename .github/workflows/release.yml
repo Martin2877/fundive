@@ -1,0 +1,85 @@
+# 版本发布：版本号是唯一真源（根 package.json#version）。
+# - main 分支：version 比最新 v* tag 新 -> 自动打 tag + 稳定版 Release（附 dist 构建包）
+# - preview 分支：每次推送 -> v<version>-pre.<run> 预览版 prerelease（更频繁）
+# 部署域名互通：仓库 Settings -> Variables 里配 VITE_STABLE_URL / VITE_PREVIEW_URL，
+# 构建时烘进前端，菜单右下角版本号处的通道切换就靠它互跳。
+name: release
+
+on:
+  push:
+    branches: [main, preview]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: '发布通道'
+        required: true
+        default: 'preview'
+        type: choice
+        options: [stable, preview]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+
+      - name: 计算版本与通道
+        id: v
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          if [ "${{ github.ref }}" = "refs/heads/preview" ] || [ "${{ inputs.channel }}" = "preview" ]; then
+            CH=preview
+            TAG="v${VER}-pre.${GITHUB_RUN_NUMBER}"
+          else
+            CH=stable
+            TAG="v${VER}"
+          fi
+          echo "ver=$VER" >> $GITHUB_OUTPUT
+          echo "channel=$CH" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          # stable：tag 已存在说明这个版本发过了，跳过（preview 每次新发不查重）
+          if [ "$CH" = "stable" ] && git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "skip=1" >> $GITHUB_OUTPUT
+          else
+            echo "skip=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 稳定版已发布过，跳过
+        if: steps.v.outputs.skip == '1'
+        run: echo "tag ${{ steps.v.outputs.tag }} already exists — bump package.json version to release"
+
+      - name: 安装依赖
+        if: steps.v.outputs.skip != '1'
+        run: npm ci
+
+      - name: 构建客户端
+        if: steps.v.outputs.skip != '1'
+        env:
+          VITE_CHANNEL: ${{ steps.v.outputs.channel }}
+          VITE_STABLE_URL: ${{ vars.VITE_STABLE_URL }}
+          VITE_PREVIEW_URL: ${{ vars.VITE_PREVIEW_URL }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_WS_URL: ${{ vars.VITE_WS_URL }}
+        run: npm run build
+
+      - name: 打包 dist
+        if: steps.v.outputs.skip != '1'
+        run: cd client && zip -qr ../fundive-${{ steps.v.outputs.tag }}.zip dist
+
+      - name: 发布 GitHub Release
+        if: steps.v.outputs.skip != '1'
+        env: { GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        run: |
+          PRE=""; [ "${{ steps.v.outputs.channel }}" = "preview" ] && PRE="--prerelease"
+          gh release create "${{ steps.v.outputs.tag }}" $PRE \
+            --title "${{ steps.v.outputs.tag }} (${{ steps.v.outputs.channel }})" \
+            --generate-notes \
+            fundive-${{ steps.v.outputs.tag }}.zip

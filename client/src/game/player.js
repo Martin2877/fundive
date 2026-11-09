@@ -45,6 +45,9 @@ export class Player {
     this.hooked = null;                                        // 礁钩挂住的点（海潜）
     this.inCurrent = null;                                     // 当前所在的强流区
     this.compass = true;                                       // 指北针：常驻装备，夹在仪表上
+    this.gearDrag = 0;           // 装备负担 0..~0.18：减速 + 费气（装备间负重换来）
+    this.squeezeK = 1;           // 窄缝耐心系数：侧挂/带刀给硬挤多留点时间
+    this.spareLamps = 1;         // 备用灯数量：主灯灭了自动换上（换完就没）
     this.carryWeight = 0;        // 打捞物负重
     this.towing = false;         // 拖带被困者
     this.freeflow = 0;           // 自由流剩余秒数
@@ -80,7 +83,7 @@ export class Player {
     // —— 游动 ——
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
     _f.set(input.mx, 0, -input.mz).applyQuaternion(q);
-    const burden = 1 - Math.min(0.4, this.carryWeight * 0.06) - (this.towing ? 0.45 : 0);
+    const burden = (1 - Math.min(0.4, this.carryWeight * 0.06) - (this.towing ? 0.45 : 0)) * (1 - this.gearDrag);
     if (this.onLand) {
       // 岸上步行：浮力/水流/氮醉都不管你——只管走。走出岸沿就跌回水里。
       _f.set(input.mx, 0, -input.mz).applyQuaternion(_qy.setFromEuler(_e.set(0, this.yaw, 0, 'YXZ')));
@@ -254,14 +257,14 @@ export class Player {
         if (this.wedged) { this.wedged = null; ctx.talk?.('松了——退出来了。窄缝不吃快，侧身慢过。'); }
         this.stuckT = Math.max(0, this.stuckT - dt * 2);
       }
-      if (this.stuckT > 10) return this.die('stuck', ctx);
+      if (this.stuckT > 10 * this.squeezeK) return this.die('stuck', ctx);
     } else {
       this.wedged = null;
       this.stuckT = Math.max(0, this.stuckT - dt * 2);
     }
 
     // —— 气量 ——
-    const sac = 0.085 * this.ata() * (1 + (input.kick ? 0.9 : 0)) * (1 + this.panic * 1.6) * (this.towing ? 1.5 : 1);
+    const sac = 0.085 * this.ata() * (1 + (input.kick ? 0.9 : 0)) * (1 + this.panic * 1.6) * (this.towing ? 1.5 : 1) * (1 + this.gearDrag * 0.6);
     let drain = this.inAir && !this.domeBad ? 0 : sac * dt;   // 气室里摘掉二级头，吸洞里的空气
     if (this.freeflow > 0) { this.freeflow -= dt; drain += 0.9 * this.ata() * dt; }
     this.gas -= drain;
@@ -294,7 +297,14 @@ export class Player {
     // —— 设备事故 ——
     if (this.blackoutT > 0) {
       this.blackoutT -= dt;
-      if (this.blackoutT <= 0) { this.lightOn = false; audio?.clunk?.(); }
+      if (this.blackoutT <= 0) {
+        // 主灯彻底灭：有备用灯摸黑换上（少一支），没有就只能黑了
+        if (this.spareLamps > 0) {
+          this.spareLamps--; this.lightOn = false; this.backupOn = true;
+          ctx.talk?.('主灯灭了——你摸出备用灯拍亮它。');
+        } else this.lightOn = false;
+        audio?.clunk?.();
+      }
     }
     if (this.lightOn === false && !this.backupOn && depth > 8 && this.time > 60) {
       // 抹黑太久 -> 迷路风险由 onLine/silt 逻辑放大
