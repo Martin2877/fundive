@@ -101,6 +101,9 @@ export class Input {
     this.canvas.addEventListener('click', () => {
       if (!this.isTouch && !this.pointerLocked) this.canvas.requestPointerLock?.();
     });
+    // 右键 = 收起取景器（Esc 会被浏览器收走指针锁，拍照退出必须另配键）
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.canvas.addEventListener('mousedown', (e) => { if (e.button === 2) this.actions.push('photo_cancel'); });
     if (this.isTouch) this._bindTouch();
   }
 

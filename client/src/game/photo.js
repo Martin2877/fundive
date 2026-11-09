@@ -15,7 +15,7 @@ export class PhotoSystem {
     this.el.id = 'finder';
     this.el.hidden = true;
     this.el.innerHTML = `<div class="frame"></div><div class="cross"></div>
-      <div class="meta">${t('F 拍摄 · Esc 收起相机')}</div><div class="film"></div>`;
+      <div class="meta">${t(matchMedia('(pointer: coarse)').matches ? '拍摄 · 暂停键收起相机' : 'F 拍摄 · 右键收起相机')}</div><div class="film"></div>`;
     document.body.appendChild(this.el);
     this.shots = [];          // 本潜拍到的 {sp,stars,thumb}
   }

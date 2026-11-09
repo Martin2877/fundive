@@ -185,7 +185,7 @@ export class HUD {
       </div>` : `<div class="kb">
         <div class="k">${t('键位表 · Tab 收起')}</div>
         <div class="kg"><b>${t('游动')}</b><span>${t('W/A/S/D 游动 · 空格 快踢(搅沙) · K 蛙踢 · Shift 稳速 · 鼠标 视角')}</span></div>
-        <div class="kg"><b>${t('装备')}</b><span>${t('M 面镜摘/戴 · H 压面镜上沿 · N 鼻子吐气 · X 捏鼻 · R 二级头拿开/含回 · Q 备用二级头 · B/V BCD充气/放气 · L 主灯 · O CCR氧电池 · F 相机 · E 互动 · G 抓引绳/挂钩 · C 浮标(海潜) · I/U 吸气/呼气(手动模式)')}</span></div>
+        <div class="kg"><b>${t('装备')}</b><span>${t('M 面镜摘/戴 · H 压面镜上沿 · N 鼻子吐气 · X 捏鼻 · R 二级头拿开/含回 · Q 备用二级头 · B/V BCD充气/放气 · L 主灯 · O CCR氧电池 · F 相机(再按拍摄 · 右键收起) · E 互动 · G 抓引绳/挂钩 · C 浮标(海潜) · I/U 吸气/呼气(手动模式)')}</span></div>
         <div class="kg"><b>${t('手势')}</b><span>${t('1 OK · 2 上升/撤 · 3 求助 · 4 指引绳 · 5 灯信号')}</span></div>
         <div class="kg"><b>${t('其他')}</b><span>${t('Tab 键位表 · Esc 暂停 · 组合技示例：H+N 同按 = 面镜排水 · X+N = 耳压平衡')}</span></div>
       </div>`;

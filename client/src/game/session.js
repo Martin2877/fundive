@@ -434,6 +434,9 @@ export class DiveSession {
       }
       else if (a === 'reg') { if (this.lesson) { p.regOut = !p.regOut; p.regOutT = 0; audio.ok(); } }
       else if (a === 'keys') hud.toggleKeys?.();
+      else if (a === 'photo_cancel') {
+        if (photos.active) { photos.close(); this.finderMode = false; }
+      }
       else if (a === 'pause') {
         if (photos.active) { photos.close(); this.finderMode = false; }
         else this.paused ? this.resume() : this.pause();

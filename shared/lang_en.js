@@ -1364,7 +1364,7 @@ export const EN = {
   "扒住船尾梯翻过身——海天线亮得睁不开眼。接应到了，回家。": "You roll over onto the stern ladder — the horizon is blindingly bright. Pickup's here; home.",
   "翻上冰面，冷空气第一口就把肺扎醒了。接应的人正朝这边来。": "You roll onto the ice and the first breath of frozen air stings your lungs awake. The crew is coming for you.",
   "扒着坑边的石头爬出水面——头顶是树冠和天光。回到人间了。": "You climb out on the rim rocks — canopy and daylight overhead. Back among the living.",
-  "M 面镜摘/戴 · H 压面镜上沿 · N 鼻子吐气 · X 捏鼻 · R 二级头拿开/含回 · Q 备用二级头 · B/V BCD充气/放气 · L 主灯 · O CCR氧电池 · F 相机 · E 互动 · G 抓引绳/挂钩 · C 浮标(海潜) · I/U 吸气/呼气(手动模式)": "M mask off/on · H press mask top · N nose exhale · X pinch nose · R regulator out/in · Q octopus · B/V BCD inflate/deflate · L light · O CCR cell · F camera · E interact · G grab line/reef hook · C SMB (ocean) · I/U inhale/exhale (manual mode)",
+  "M 面镜摘/戴 · H 压面镜上沿 · N 鼻子吐气 · X 捏鼻 · R 二级头拿开/含回 · Q 备用二级头 · B/V BCD充气/放气 · L 主灯 · O CCR氧电池 · F 相机(再按拍摄 · 右键收起) · E 互动 · G 抓引绳/挂钩 · C 浮标(海潜) · I/U 吸气/呼气(手动模式)": "M mask off/on · H press mask top · N nose exhale · X pinch nose · R regulator out/in · Q octopus · B/V BCD inflate/deflate · L light · O CCR cell · F camera (again to shoot, right-click to stow) · E interact · G grab line/reef hook · C SMB (ocean) · I/U inhale/exhale (manual mode)",
   "顺光上浮——头顶不是进来的那口天窗，是另一个洞口。岸上静悄悄的，没人接应。": "You float up toward the light — it isn't the skylight you came in through, it's another mouth. The bank is silent; nobody is waiting.",
   "扒着坑边的石头爬出水面——树冠、鸟叫、太阳晃眼。岸上静悄悄的，没人在这儿等。": "You climb out on the rim rocks — canopy, birdsong, blinding sun. The bank is silent; nobody is waiting here.",
   "你深吸一口，又潜回水里。": "You take a deep breath and slip back under.",
@@ -1750,4 +1750,6 @@ export const EN = {
   "更频繁的尝鲜更新": "bleeding-edge, updates often",
   "预览版部署未配置（VITE_PREVIEW_URL）——先在 Cloudflare 开个 preview 分支": "Preview site not configured (VITE_PREVIEW_URL) — set up a preview branch deploy first",
   "稳定版地址未配置（VITE_STABLE_URL）": "Stable site not configured (VITE_STABLE_URL)",
+  "F 拍摄 · 右键收起相机": "F to shoot · right-click to put the camera away",
+  "拍摄 · 暂停键收起相机": "Shoot · pause button puts the camera away",
 };
