@@ -3,7 +3,6 @@
 // 产物：reports/shots/<地图>_<检查点>.png（reports/ 已被 gitignore）。需要本机装有 Chrome。
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
-import { seedUnlock } from './_seed.mjs';
 
 const arg = (k, d) => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1] || d;
 const URL = arg('url', 'http://localhost:5173/');
@@ -15,7 +14,6 @@ fs.mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch({ channel: 'chrome', args: ['--use-gl=angle', '--use-angle=metal', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
-await seedUnlock(ctx);
 await ctx.addInitScript((q) => localStorage.setItem('fundive.quality', q), QUALITY);
 let failed = 0;
 const gate = (ok, msg) => { console.log(`  ${ok ? '✓' : '✗'} ${msg}`); if (!ok) failed++; };

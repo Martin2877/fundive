@@ -20,10 +20,10 @@ export function guideMode(d) {
   return ['full', 'lite', 'off'][diverLevel(d)];
 }
 
-// —— 递进解锁：难度≥4 的图需要先证明自己 ——
-// 前置难度图任意一章好结局，或对应课系累计满 6 星；未解锁只能「临时起意」硬闯（不计评级）。
+// —— 难度资历建议（软提示，不锁图）——
+// 难度≥4 的图：玩家没有前置难度图的好结局、对应课系也没满 6 星时，详情页劝一句"先来点轻的"。
 const KIND_COURSE = { cave: 'aow', ocean: 'ocn', ice: 'mil' };
-export function unlockReq(map, d) {
+export function belowPar(map, d) {
   if ((map.difficulty || 1) < 4) return null;
   const chapters = d?.chapters || {};
   if (MAPS.some(m => !m.hidden && m.difficulty === map.difficulty - 1 && chapters[m.id]?.done)) return null;
@@ -31,4 +31,3 @@ export function unlockReq(map, d) {
   const stars = Object.values(d?.courses?.[cid] || {}).reduce((s, l) => s + (l.stars || 0), 0);
   return stars >= 6 ? null : { cid, prev: map.difficulty - 1 };
 }
-export const mapLocked = (map, d) => !!unlockReq(map, d);

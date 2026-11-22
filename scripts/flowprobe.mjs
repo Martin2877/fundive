@@ -1,12 +1,9 @@
 // 海流探针：看 flowZones/hookPoints -> 进激流区看漂移 -> 挂钩看稳定
 import { chromium } from 'playwright-core';
-import { seedUnlock } from './_seed.mjs';
 const URL = process.argv.find(a => a.startsWith('--url='))?.split('=')[1] || 'http://localhost:5173/';
 const MAPIDX = +(process.argv.find(a => a.startsWith('--map='))?.split('=')[1] || 0);
 const browser = await chromium.launch({ channel: 'chrome', args: ['--use-gl=angle', '--use-angle=metal', '--ignore-gpu-blocklist'] });
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
-await seedUnlock(ctx);
-const page = await ctx.newPage();
+const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
 page.on('pageerror', e => console.log('PAGEERROR', e.message));
 await page.goto(URL);
 await page.waitForSelector('.map');

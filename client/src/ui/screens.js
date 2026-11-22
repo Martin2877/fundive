@@ -11,7 +11,7 @@ import { STORY, storyOf } from '@fundive/shared/story.js';
 import { MSG, MAX_DIVERS } from '@fundive/shared/protocol.js';
 import { surveyCard } from './survey.js';
 import { account } from '../game/account.js';
-import { unlockReq } from '../game/guide.js';
+import { belowPar } from '../game/guide.js';
 import { VERSION, channelKey, versionLabel, channelUrl } from '../version.js';
 
 const app = () => document.getElementById('app');
@@ -174,12 +174,10 @@ export function showMenu({ onSolo, onLobby, onBoard, onGallery, onTrain, onPrevi
     }
     list.innerHTML = '';
     for (const m of mapsOf(disc)) {
-      const req = unlockReq(m, store.data);
-      const lockTip = req ? t('未解锁——通关任一 {d} 图，或「{c}」课程满 6 星', { d: DIFF[req.prev], c: t(COURSES.find(c => c.id === req.cid)?.name || '') }) : '';
       const b = el(`<button class="map${m.id === mapId ? ' sel' : ''}">
         <span class="tag">${t(m.sub)}</span>
         <span class="diff">${DIFF[m.difficulty]} · ${t('最深')} ${m.maxDepth}m</span>
-        <span class="n">${mapName(m)}<small>${altName(m)}</small>${store.data.chapters?.[m.id]?.done ? ` <span style="color:var(--lagoon)" title="${t('章节已完成')}">${store.data.chapters[m.id].grade || '✓'}</span>` : ''}${req ? ` <span title="${lockTip}">🔒</span>` : ''}</span>
+        <span class="n">${mapName(m)}<small>${altName(m)}</small>${store.data.chapters?.[m.id]?.done ? ` <span style="color:var(--lagoon)" title="${t('章节已完成')}">${store.data.chapters[m.id].grade || '✓'}</span>` : ''}</span>
         <span class="d">${t(STORY[m.id]?.title || '')}　${t(m.desc)}</span></button>`);
       b.onclick = () => { mapId = m.id; save(); render(); preview(); };
       list.appendChild(b);
@@ -501,14 +499,14 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onGear, onB
         return `<div class="sub" style="margin:6px 0;font-size:12px">${t('这张图用得上的课：')}${chips}</div>`;
       })()}
       ${(() => {
-        const req = unlockReq(map, store.data);
-        if (!req) return '';
-        const cname = t(COURSES.find(c => c.id === req.cid)?.name || '');
-        return `<div class="sub" style="margin:8px 0 0;font-size:12.5px;color:#ffd27f">🔒 ${t('这片水域还不对你开放——通关任一 {d} 潜点，或把「{c}」修到 6 星再来。现在下水只能临时起意硬闯，不计评级。', { d: DIFF[req.prev], c: cname })}</div>`;
+        const bp = belowPar(map, store.data);
+        if (!bp) return '';
+        const cname = t(COURSES.find(c => c.id === bp.cid)?.name || '');
+        return `<div class="sub" style="margin:8px 0 0;font-size:12.5px;color:#9fd8ec">⚠ ${t('这片水域比你目前的资历深——建议先通关任一 {d} 潜点，或修完「{c}」。真要下，带好装备再走。', { d: DIFF[bp.prev], c: cname })}</div>`;
       })()}
       <div class="row" style="margin-top:10px">
-        ${unlockReq(map, store.data) ? '' : `<button class="btn primary" id="gear">${t('装备准备')} →</button>`}
-        <button class="btn" id="whim" title="${unlockReq(map, store.data) ? t('未解锁硬闯：固定基础装，可能忘带小件——本次不计评级') : t('抓起装备就走：固定基础装，可能忘带小件——折返线低、深度不限')}">${t('临时起意')} →</button>
+        <button class="btn primary" id="gear">${t('装备准备')} →</button>
+        <button class="btn" id="whim" title="${t('抓起装备就走：固定基础装，可能忘带小件——折返线低、深度不限')}">${t('临时起意')} →</button>
         <button class="btn small" id="back">${t('今天不下了')}</button>
       </div>
       ${multiplayer ? `<div class="sub" style="margin-top:10px;font-size:12px;color:var(--lagoon)">${t('潜伴们正在同一个宇宙里等你。')}</div>` : ''}
@@ -517,7 +515,7 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onGear, onB
   const $ = (s) => scr.querySelector(s);
   // 前人手绘测图：探明的路线轮廓 + 支洞标注，可放大看细节（中英标注可切换）
   if (map.route?.length > 1) $('#svslot').replaceChildren(surveyCard(map, uni));
-  if ($('#gear')) $('#gear').onclick = () => onGear?.();
+  $('#gear').onclick = () => onGear?.();
   $('#whim').onclick = () => onDive({ whim: true });
   $('#back').onclick = onBack;
 }
@@ -564,7 +562,6 @@ export function showDebrief(result, { onRetry, onNewUniverse, onMenu, onGallery,
       </div>
       <div class="plan-grid" style="width:min(400px,86vw);margin:0">
         ${result.grade ? `<div class="cell"><div class="v" style="font-size:36px;color:${{ S: '#ffd27f', A: '#7fe9ea', B: '#9fd8ec' }[result.grade] || 'var(--dim)'}">${result.grade}</div><div class="l">${t('评级')}</div></div>` : ''}
-        ${result.unranked ? `<div class="cell"><div class="v" style="font-size:15px;color:var(--dim)">${t('硬闯')}</div><div class="l">${t('不计评级')}</div></div>` : ''}
         <div class="cell"><div class="v">${mmss(s.time)}</div><div class="l">${t('潜水时间')}</div></div>
         <div class="cell"><div class="v">${s.maxDepth}</div><div class="l">${t('最大深度 m')}</div></div>
         <div class="cell"><div class="v">${s.gasLeft}</div><div class="l">${t('剩余气压')}</div></div>

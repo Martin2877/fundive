@@ -50,6 +50,38 @@ function wallRadius(s, nx, ny, nz) {
     const floor = (s.r * (0.5 + 0.06 * big)) / -ny;
     rad = smin(rad, floor, s.r * 0.35);
   }
+  // —— 断面形态（真实洞道剖面，网格与碰撞同源）：横向椭圆 / 底切峡谷槽 / 层理岩棚 / 顶穹丘 ——
+  const mo = s.morph;
+  if (mo) {
+    if (mo.eN !== 1 || mo.eB !== 1) {
+      // 椭圆断面：方向分解到断面基(N 横向 / B 竖向)并归一化，半轴缩放半径
+      const cN = nx * s.N.x + ny * s.N.y + nz * s.N.z;
+      const cB = nx * s.B.x + ny * s.B.y + nz * s.B.z;
+      const L = Math.hypot(cN, cB);
+      if (L > 1e-4) rad *= (mo.eN * mo.eB) / Math.sqrt((mo.eB * cN / L) * (mo.eB * cN / L) + (mo.eN * cB / L) * (mo.eN * cB / L));
+    }
+    const flat = 1 - Math.min(1, Math.abs(s.tan.y) / 0.55);   // 陡井段不算槽/穹丘（其断面是水平的）
+    if (mo.canyon > 0 && ny < -0.12 && flat > 0.01) {
+      // 匙孔剖面：平底中央下切一条窄深槽（雨季河道的形态）
+      const lat = Math.abs(nx * -s.tan.z + nz * s.tan.x) / Math.max(0.2, Math.hypot(nx, nz));
+      const slot = Math.max(0, 1 - lat / mo.slotW);
+      rad += slot * slot * Math.min(1, (-ny - 0.12) / 0.6) * mo.canyon * s.r * 1.4 * flat;
+    }
+    if (mo.ledges > 0.01) {
+      // 层理岩棚：侧壁沿高度分带外凸，形成一圈圈可以落脚的岩台
+      const horiz = Math.max(0, 1 - Math.abs(ny) * 2.4);
+      if (horiz > 0.01) {
+        const band = Math.abs(((py + ny * rad) * mo.ledgeF + mo.lph) % 1 + 1) % 1;
+        const k = 1 - Math.min(1, Math.abs(band - 0.5) * 2 / 0.3);
+        rad *= 1 + mo.ledges * 0.16 * k * k * horiz;
+      }
+    }
+    const domeAmt = mo.dome * (s.domeK ?? 1);
+    if (domeAmt > 0.01 && ny > 0.4 && flat > 0.01) {
+      // 顶穹丘：洞厅顶的溶蚀穹窿，沿走向波浪起伏
+      rad *= 1 + domeAmt * 0.5 * Math.pow(Math.min(1, (ny - 0.4) / 0.6), 1.5) * (0.55 + 0.45 * Math.sin(s.s * 0.23 + mo.dph)) * flat;
+    }
+  }
   const up = Math.min(1, Math.max(0, (ny - 0.1) / 0.8));
   const pinch = Math.min(0.85, s.sky * up * up * (3 - 2 * up) * 1.1);   // 天窗收口（平滑，避免折痕）
   SHAPE.lift = pinch * pinch * (s.r * 0.5 + 2.2);
@@ -332,6 +364,31 @@ export function buildCave(map, uni) {
     }
   }
 
+  // —— 断面形态：按真实潜点给每条路径定剖面——
+  // eN/eB 椭圆半轴（>1.2 横宽如佛罗里达层理洞道；<0.9 竖窄如峡谷），canyon 底切槽，
+  // ledges 层理岩棚，dome 顶穹丘。支洞可用 def.morph 覆盖主图设置。
+  const md = map.morph || {};
+  const lph = rng() * 10, dph = rng() * 10;
+  for (const path of paths) {
+    const bd = path.def?.morph || {};
+    const mo = {
+      eN: bd.eN ?? md.eN ?? 1.12, eB: bd.eB ?? md.eB ?? 0.86,
+      canyon: bd.canyon ?? md.canyon ?? 0, slotW: bd.slotW ?? md.slotW ?? 0.45,
+      ledges: bd.ledges ?? md.ledges ?? 0.35, ledgeF: bd.ledgeF ?? md.ledgeF ?? 0.55,
+      dome: bd.dome ?? md.dome ?? 0.18, lph, dph,
+    };
+    for (const s of spines[path.tag]) s.morph = mo;
+  }
+  // 洞厅节点 = 顶穹丘加强带：真实洞厅比连接通道高出一截
+  map.route.forEach((n, i) => {
+    if (n.room !== 'hall') return;
+    const smp = spines.main[nodeToSample.get(i)]; if (!smp) return;
+    for (const s of spines.main) {
+      const d = Math.abs(s.s - smp.s) / (n.r * 1.7);
+      if (d < 1) s.domeK = Math.max(s.domeK || 1, 1 + 1.6 * (0.5 + 0.5 * Math.cos(d * Math.PI)));
+    }
+  });
+
   // —— 放样管状网格 ——
   // 岔洞幻影墙剔除：顶点落在"另一条"通道的可通行空间内 => 该处壁面本不存在。
   // （碰撞的通道是管的并集，网格这里也按并集挖洞，所见即所碰。）
@@ -469,6 +526,8 @@ export function buildCave(map, uni) {
     group.add(sl, sl.target);
     skylights.push({ pos: new THREE.Vector3(...sn.p), r: sn.r, top, caust: null });
   }
+  // 天窗下的塌积锥：真实落水洞的标志性地貌（El Pit 的巨锥、Dos Ojos 的碎石坡）
+  // 放在装饰函数定义之后统一生成
 
   // —— 地质装饰：钟乳石/石笋/石柱/卷曲石/崩塌巨石/残骸，全部贴合 wallRadius 放置 ——
   const deco = new GeomAcc();   // 钙质与岩石：共用岩石三平面材质
@@ -549,6 +608,67 @@ export function buildCave(map, uni) {
     addGeo(deco, g, _p, _q, new THREE.Vector3(size, size, size), () => [tone, tone * 0.97, tone * 0.92]);
     obstacles.push({ p: _p.clone(), r: size * 1.22 });   // 巨石挡路是真的挡（含噪声凸尖余量）
   };
+  // 鹅管：极细的初生钙管，成簇悬在顶壁——真洞里大片钟乳石都是从鹅管长起的
+  const addStraws = (s) => {
+    const n0 = intRange(rng, 6, 14), dx = range(rng, -0.7, 0.7), dz = range(rng, -0.7, 0.7);
+    for (let k = 0; k < n0; k++)
+      addSpeleo(s, _n.set(dx + range(rng, -0.3, 0.3), 1, dz + range(rng, -0.3, 0.3)), -1, range(rng, 0.1, 0.45), range(rng, 0.008, 0.02), 'drip');
+  };
+  // 流石幔（石旗）：顶缘垂下的波状薄幔，双皮封闭——钙质的瀑布
+  const curtainGeo = (w, h) => {
+    const sx = 8, sy = 5, ph = rng() * 9, fq = range(rng, 2.4, 3.6), amp = range(rng, 0.08, 0.2);
+    const P = (u, v) => [(u - 0.5) * w, -v * h, Math.sin(u * Math.PI * fq + ph) * amp * (0.25 + v) + fbm3(u * 4 + ph, v * 4, ph, 2) * 0.05];
+    const pos = [], idx = [], W = sx + 1, sheet = W * (sy + 1);
+    for (const off of [0.02, -0.02]) for (let iy = 0; iy <= sy; iy++) for (let ix = 0; ix <= sx; ix++) {
+      const q = P(ix / sx, iy / sy); pos.push(q[0], q[1], q[2] + off);
+    }
+    for (let s2 = 0; s2 < 2; s2++) for (let iy = 0; iy < sy; iy++) for (let ix = 0; ix < sx; ix++) {
+      const a = s2 * sheet + iy * W + ix, b = a + 1, c = a + W + 1, d = a + W;
+      if (s2 === 0) idx.push(a, d, b, b, d, c); else idx.push(a, b, d, b, c, d);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    return g;
+  };
+  const addCurtain = (s) => {
+    wallPt(s, _n.set(range(rng, -0.85, 0.85), range(rng, 0.5, 0.9), range(rng, -0.85, 0.85)), _p, 0.05);
+    const inw = _d2.negate(); inw.y = 0;   // wallPt 之后 _d2 就是实际取壁方向；幔面法线朝洞内（水平分量）
+    if (inw.lengthSq() < 0.01) inw.set(0, 0, 1); else inw.normalize();
+    _m.makeBasis(_v.set(-inw.z, 0, inw.x), _b.set(0, -1, 0), inw);
+    _q.setFromRotationMatrix(_m);
+    const tone = range(rng, 1.0, 1.3);
+    addGeo(deco, curtainGeo(range(rng, 1.0, 2.4), range(rng, 0.5, 1.6)), _p, _q, _s1, () => [tone, tone * 0.93, tone * 0.8]);
+  };
+  // 天窗塌积锥：洞口崩落岩堆成锥——落水洞（尤卡坦 cenote 群）的标志性坡丘
+  const addTalus = (sn) => {
+    const R = sn.r * range(rng, 0.7, 0.95), H = sn.r * range(rng, 0.45, 0.65);
+    const cx = sn.p[0] + range(rng, -1, 1) * sn.r * 0.2, cz = sn.p[2] + range(rng, -1, 1) * sn.r * 0.2;
+    const floorY = sn.p[1] - sn.r * 0.58;
+    const g = new THREE.ConeGeometry(R, H, 14, 3, true);
+    const pa = g.attributes.position, ph = rng() * 40;
+    for (let i = 0; i < pa.count; i++) {
+      const x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i), k = 1 + 0.24 * fbm3(x * 0.5 + ph, y * 0.5, z * 0.5 + ph, 3);
+      pa.setXYZ(i, x * k, y, z * k);
+    }
+    g.translate(0, H / 2, 0);
+    const tone = range(rng, 0.85, 1.05);
+    _q.identity();
+    addGeo(deco, g, _p.set(cx, floorY - 0.15, cz), _q, _s1, () => [tone, tone * 0.98, tone * 0.94]);
+    obstacles.push({ p: new THREE.Vector3(cx, floorY + H * 0.5, cz), r: R * 0.7 });
+    // 锥脚散落的崩落石块
+    for (let k = 0; k < intRange(rng, 4, 8); k++) {
+      const a = rng() * Math.PI * 2, rr = R * range(rng, 0.75, 1.05), sz = range(rng, 0.3, 0.9);
+      const bg = new THREE.SphereGeometry(1, 8, 6), bp = bg.attributes.position, ph2 = rng() * 30;
+      for (let i = 0; i < bp.count; i++) {
+        const kk = 1 + 0.35 * fbm3(bp.getX(i) * 1.2 + ph2, bp.getY(i) * 1.2, bp.getZ(i) * 1.2 + ph2, 3);
+        bp.setXYZ(i, bp.getX(i) * kk * 1.15, bp.getY(i) * kk * 0.72, bp.getZ(i) * kk);
+      }
+      _q.setFromEuler(new THREE.Euler(rng() * 3, rng() * 6, rng() * 3));
+      addGeo(deco, bg, _p.set(cx + Math.cos(a) * rr, floorY + range(rng, -0.1, 0.25), cz + Math.sin(a) * rr), _q, new THREE.Vector3(sz, sz, sz), () => [tone, tone, tone * 0.95]);
+      obstacles.push({ p: new THREE.Vector3(cx + Math.cos(a) * rr, floorY, cz + Math.sin(a) * rr), r: sz * 1.1 });
+    }
+  };
   // 残骸带：翻倒的气瓶、旧装备 —— 打捞类地图的气氛组
   const addDebris = (s) => {
     for (let k = 0; k < 3; k++) {
@@ -575,8 +695,13 @@ export function buildCave(map, uni) {
         const n = intRange(rng, 1, 3);
         for (let k = 0; k < n; k++) addSpeleo(s, _n.set(range(rng, -0.7, 0.7), 1, range(rng, -0.7, 0.7)), -1, range(rng, 0.2, Math.min(1.8, s.r * 0.35)), range(rng, 0.04, 0.12));
       }
+      if (s.r > 2 && chance(rng, 0.35)) addStraws(s);
+      if (s.r > 2.6 && chance(rng, 0.28)) addCurtain(s);
     }
   }
+
+  // 每个天窗下堆一座塌积锥（洞口崩落岩堆——真实落水洞的标志性斜坡）
+  for (const sn of skyNodes) addTalus(sn);
 
   map.route.forEach((node, i) => {
     const s = nodeSamples(i); if (!s) return;
@@ -588,9 +713,15 @@ export function buildCave(map, uni) {
       const cnt = node.room === 'hall' ? intRange(rng, 14, 24) : intRange(rng, 5, 10);
       for (let k = 0; k < cnt; k++) {
         const sm = sampleNear(nodeToSample.get(i), node.r * 0.8);
+        const dx = range(rng, -0.8, 0.8), dz = range(rng, -0.8, 0.8);
         const len = range(rng, 0.5, Math.max(0.8, Math.min(sm.r * 0.55, 3.2)));
-        addSpeleo(sm, _n.set(range(rng, -0.8, 0.8), 1, range(rng, -0.8, 0.8)), -1, len, range(rng, 0.08, 0.3) * Math.min(1.5, 0.6 + len * 0.4));
-        if (chance(rng, 0.5)) addSpeleo(sm, _n.set(range(rng, -0.8, 0.8), -1, range(rng, -0.8, 0.8)), 1, len * 0.6, range(rng, 0.1, 0.3));
+        addSpeleo(sm, _n.set(dx, 1, dz), -1, len, range(rng, 0.08, 0.3) * Math.min(1.5, 0.6 + len * 0.4));
+        // 成对石笋：钟乳正下方的地面石笋——同一滴水喂大的对子，再长几万年就是石柱
+        if (chance(rng, 0.55)) addSpeleo(sm, _n.set(dx * 0.8, -1, dz * 0.8), 1, len * range(rng, 0.45, 0.7), range(rng, 0.1, 0.32));
+      }
+      if (node.room === 'hall') {
+        for (let k = 0; k < intRange(rng, 2, 5); k++) addStraws(sampleNear(nodeToSample.get(i), node.r * 0.7));
+        for (let k = 0; k < intRange(rng, 2, 4); k++) addCurtain(sampleNear(nodeToSample.get(i), node.r * 0.7));
       }
       photoables.push({ sp: 'stalactite', pos: topAt(s).addScaledVector(UP, -node.r * 0.25), r: node.r });
     }

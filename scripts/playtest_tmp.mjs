@@ -1,6 +1,5 @@
 // 体验脚本：真实浏览器走完菜单→下水→操作→联机的完整流程
 import { chromium } from 'playwright-core';
-import { seedUnlock } from './_seed.mjs';
 import fs from 'node:fs';
 
 const URL = (process.argv.find(a => a.startsWith('--url=')) || '').split('=')[1] || 'http://localhost:5173/';
@@ -8,9 +7,7 @@ const OUT = '/tmp/fundive-play';
 fs.mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch({ channel: 'chrome', args: ['--use-gl=angle', '--use-angle=metal', '--ignore-gpu-blocklist'] });
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
-await seedUnlock(ctx);
-const page = await ctx.newPage();
+const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
 const errs = [];
 page.on('console', (c) => { if (c.type() === 'error' && !/404|favicon/.test(c.text())) errs.push(c.text()); });
 page.on('pageerror', (e) => errs.push(e.message));

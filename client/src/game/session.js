@@ -1192,8 +1192,7 @@ export class DiveSession {
       shots: this.o.photos.shots.slice(-8),
       replay: { mapId: this.map.id, nodes: this.cave.nodes.map(n => ({ x: n.pos.x, z: n.pos.z, name: n.name })), track: this.track, events: this.events, turnGas: this.o.plan?.turnGas || 140, planDepth: this.o.plan?.planDepth || 0 },
     };
-    result.unranked = !!this.o.plan?.unranked;
-    result.grade = (this.lesson || result.unranked) ? null : diveGrade(result, goodEnd);
+    result.grade = this.lesson ? null : diveGrade(result, goodEnd);
     document.getElementById('narco').style.opacity = 0;
     this.o.photos.close();
     this.o.hud.hide();

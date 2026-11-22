@@ -93,6 +93,8 @@ export const ENDINGS = {
 export const MAPS = [
   {
     id: 'dosojos',
+    morph: { eN: 1.28, eB: 0.74, ledges: 0.55, ledgeF: 0.5, dome: 0.3, canyon: 0.15 },   // 尤卡坦：宽扁溶蚀管+层理台
+
     name: '双瞳天坑',
     en: 'Dos Ojos',
     sub: '新手道',
@@ -135,6 +137,8 @@ export const MAPS = [
 
   {
     id: 'thamluang',
+    morph: { eN: 0.78, eB: 1.28, canyon: 0.85, slotW: 0.5, ledges: 0.22, dome: 0.35 },   // 睡美人：雨季河道匙孔，竖窄槽
+
     name: '睡美人洞',
     en: 'Tham Luang',
     sub: '雨季 · 救援季',
@@ -177,6 +181,8 @@ export const MAPS = [
 
   {
     id: 'eaglesnest',
+    morph: { eN: 1.35, eB: 0.8, ledges: 0.45, dome: 0.7, canyon: 0.1 },                // 鹰巢：巨厅穹顶
+
     name: '鹰巢',
     en: "Eagle's Nest",
     sub: '水下珠峰',
@@ -215,6 +221,8 @@ export const MAPS = [
 
   {
     id: 'boesmansgat',
+    morph: { eN: 1.06, eB: 1.0, ledges: 0.7, ledgeF: 0.42, dome: 0.4 },                // 布什曼：竖井钟形厅，大层理环台
+
     name: '布什曼洞',
     en: 'Boesmansgat',
     sub: '深渊打捞',
@@ -249,6 +257,8 @@ export const MAPS = [
 
   {
     id: 'jiudun',
+    morph: { eN: 0.85, eB: 1.15, canyon: 0.7, slotW: 0.45, ledges: 0.5, dome: 0.4 },     // 九顿：深裂谷槽
+
     name: '九顿天窗',
     en: 'Jiudun Skylight',
     sub: '深渊之目',
@@ -286,6 +296,8 @@ export const MAPS = [
 
   {
     id: 'blueriver',
+    morph: { eN: 1.15, eB: 0.9, canyon: 0.55, ledges: 0.6, dome: 0.5 },                 // 地下河：峡谷槽+光厅穹顶
+
     name: '蓝潭地下河',
     en: 'Luminous River',
     sub: '地下河',
@@ -326,6 +338,8 @@ export const MAPS = [
 
   {
     id: 'devilseye',
+    morph: { eN: 1.45, eB: 0.6, ledges: 0.75, ledgeF: 0.7, dome: 0.2, canyon: 0.05 },   // 魔鬼之眼：佛州低扁层理道
+
     name: '魔鬼之眼',
     en: "Devil's Eye",
     sub: '泉眼激流',
@@ -362,6 +376,8 @@ export const MAPS = [
 
   {
     id: 'thepit',
+    morph: { eN: 1.1, eB: 0.95, ledges: 0.4, dome: 0.85 },                              // El Pit：巨钟形穹
+
     name: '深渊天坑',
     en: 'Cenote El Pit',
     sub: '丁达尔光柱',
@@ -394,6 +410,8 @@ export const MAPS = [
   // ———————— 教学专用水域（不进主菜单选图） ————————
   {
     id: 'pool',
+    morph: { eN: 1.15, eB: 0.8, ledges: 0.3, dome: 0.15 },
+
     name: '训练池',
     en: 'Training Basin',
     hidden: true,
@@ -418,6 +436,8 @@ export const MAPS = [
 
   {
     id: 'harbor',
+    morph: { eN: 1.2, eB: 0.8, ledges: 0.4, dome: 0.2 },
+
     name: '军港夜潜',
     en: 'Night Harbor',
     hidden: true,
@@ -483,12 +503,12 @@ MAPS.push(
       { p: [0, 0, 0], surface: true, r: 10, room: 'entry', sky: true, name: '潜水船' },
       { p: [0, 1.5, -14], r: 4, feats: ['line_start', 'sponge'], name: '锚点' },
       { p: [0, 2.5, -34], r: 5, feats: ['damselfish', 'parrotfish'], name: '残骸带' },
-      { ref: 'wreck', p: [-17, 5, 0], r: 4.5, inside: true, feats: ['grouper', 'seafan'], name: '船首' },
+      { ref: 'wreck', p: [-13.5, 5, 0], r: 4.5, inside: true, feats: ['grouper', 'seafan'], name: '船首' },
       { ref: 'wreck', p: [-8, 11, 0], r: 5, room: 'hall', feats: ['coral', 'sponge'], name: '甲板' },
-      { ref: 'wreck', p: [-5, 3.5, 0], r: 4, inside: true, feats: ['octopus'], name: '货舱' },
-      { ref: 'wreck', p: [6, 3.5, 0], r: 4, inside: true, feats: ['shipbell', 'nudibranch'], name: '机舱' },
+      { ref: 'wreck', p: [-4.5, 4.0, 0], r: 4, inside: true, feats: ['octopus'], name: '货舱' },
+      { ref: 'wreck', p: [8, 3.5, -0.5], r: 4, inside: true, feats: ['shipbell', 'nudibranch'], name: '机舱' },
       { ref: 'wreck', p: [15, 5, 0], r: 5, room: 'hall', inside: true, feats: ['grouper', 'jellyfish'], name: '船尾' },
-      { ref: 'wreck', p: [13.2, 8.7, 0], r: 3, inside: true, feats: ['shipbell'], name: '海图室' },
+      { ref: 'wreck', p: [12.9, 8.7, 1.1], r: 3, inside: true, feats: ['shipbell'], name: '海图室' },
       { p: [30, 3, -68], r: 5, feats: ['debris', 'grouper'], name: '船骸散落带' },
       { p: [16, 2.5, -94], r: 5, feats: ['ray', 'sponge'], name: '归航沙地' },
     ],
@@ -650,8 +670,8 @@ MAPS.push(
       { p: [0, 2.5, -34], r: 5, feats: ['turtle', 'damselfish'], name: '沙底外缘' },
       { ref: 'wreck', p: [-20, 6, 5], r: 4.5, feats: ['grouper', 'seafan'], name: '船首上沿' },
       { ref: 'wreck', p: [-10, 6.6, 4], r: 5, room: 'hall', feats: ['coral', 'turtle'], name: '倾覆甲板' },
-      { ref: 'wreck', p: [0.4, 3.0, -0.2], r: 3.4, inside: true, feats: ['octopus', 'shipbell'], name: '舱口槽' },
-      { ref: 'wreck', p: [12, 4.6, -6.2], r: 3.6, inside: true, feats: ['shipbell', 'nudibranch'], name: '倒塌的舰桥' },
+      { ref: 'wreck', p: [0.4, 3.0, -3.5], r: 3.4, inside: true, feats: ['octopus', 'shipbell'], name: '舱口槽' },
+      { ref: 'wreck', p: [11, 1.8, -8.5], r: 3.6, inside: true, feats: ['shipbell', 'nudibranch'], name: '倒塌的舰桥' },
       { ref: 'wreck', p: [20, 5.5, 5], r: 4.5, feats: ['grouper', 'jellyfish'], name: '船尾高舷' },
       { p: [6, 3.5, -74], r: 5.5, feats: ['debris', 'ray'], name: '散落设备带' },
       { p: [-14, 3, -90], r: 5.5, feats: ['napoleon', 'shark'], name: '外海大货区' },
@@ -676,10 +696,10 @@ MAPS.push(
       { ref: 'wreck', p: [-22, 9.8, 0], r: 4.5, feats: ['grouper', 'seafan'], name: '前甲板绞盘' },
       { ref: 'wreck', p: [-10, 4.5, 0], r: 4, inside: true, feats: ['octopus'], name: '一号货舱（卡车）' },
       { ref: 'wreck', p: [11, 4.5, 0], r: 4, inside: true, feats: ['shipbell', 'nudibranch'], name: '二号货舱（军需）' },
-      { ref: 'wreck', p: [-2.5, 8.2, 0], r: 3, inside: true, feats: ['shipbell'], name: '舰桥海图室' },
+      { ref: 'wreck', p: [-4.5, 8.8, 0], r: 3, inside: true, feats: ['shipbell'], name: '舰桥海图室' },
       { ref: 'wreck', p: [18, 9.8, 0], r: 5, feats: ['coral', 'sponge'], name: '船尾甲板' },
-      { ref: 'wreck', p: [21.5, 10.4, 0], r: 5, room: 'hall', feats: ['grouper', 'jellyfish'], name: '船尾高射炮台' },
-      { ref: 'wreck', p: [27, 5.8, 3.5], r: 5, feats: ['debris'], name: '断裂船尾' },
+      { ref: 'wreck', p: [21.5, 11.4, 0], r: 5, room: 'hall', feats: ['grouper', 'jellyfish'], name: '船尾高射炮台' },
+      { ref: 'wreck', p: [26, 5.8, 4.2], r: 5, feats: ['debris'], name: '断裂船尾' },
       { p: [30, 3.5, -68], r: 5, feats: ['barracuda', 'turtle'], name: '船尾散落带' },
       { p: [18, 3, -96], r: 5, feats: ['ray', 'parrotfish'], name: '红海礁边' },
     ],

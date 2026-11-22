@@ -2056,11 +2056,7 @@ export const EN = {
   "按 E 触碰完美者印记": "Press E to touch the mark of perfection",
   "印记在你掌心亮了一下，然后安静地认了主——这片水域把你当自己人了。": "The mark flares once in your palm, then settles — these waters count you as one of their own now.",
   "一枚悬着的金色印记。它不认你——在这张图拿到 S 评，再回来。": "A golden mark hangs in the water. It doesn't know you — earn an S grade on this site and come back.",
-  "未解锁——通关任一 {d} 图，或「{c}」课程满 6 星": "Locked — finish any {d} site, or reach 6 stars in \"{c}\"",
-  "这片水域还不对你开放——通关任一 {d} 潜点，或把「{c}」修到 6 星再来。现在下水只能临时起意硬闯，不计评级。": "These waters aren't open to you yet — finish any {d} site, or reach 6 stars in \"{c}\". For now you can only jump in on a whim — unrated.",
-  "未解锁硬闯：固定基础装，可能忘带小件——本次不计评级": "Locked-site run: fixed basic kit, small items may be forgotten — this dive is unrated",
-  "硬闯": "whim",
-  "不计评级": "unrated",
+  "这片水域比你目前的资历深——建议先通关任一 {d} 潜点，或修完「{c}」。真要下，带好装备再走。": "These waters run deeper than your experience so far — finish any {d} site or complete \"{c}\" first. If you go anyway, kit up properly.",
   "完美者印记——这片水域把你当自己人。": "Mark of perfection — these waters count you as one of their own.",
   "在这张图拿到 S 评，再去触碰那枚金色印记": "Earn an S grade on this site, then go touch the golden mark",
 };

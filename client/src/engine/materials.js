@@ -1,6 +1,6 @@
 // 共享材质：水下体积雾（分通道吸收）+ 洞壁三平面 PBR 材质。
 import * as THREE from 'three';
-import { genRock, genSand } from './texgen.js';
+import { genRock, genSand, genSteel } from './texgen.js';
 import { quality } from './quality.js';
 
 // —— 水下雾：Beer-Lambert 分通道衰减，红光最先被吸收，远处自然偏蓝绿 ——
@@ -31,6 +31,16 @@ export function caveTextures() {
     _tex = { rock: genRock(c.rockTex), sand: genSand(c.sandTex), key: quality.level };
   }
   return _tex;
+}
+
+let _steelTex = null;
+// 船体钢材：板缝/铆钉/腐蚀坑贴图 + 顶点色（锈蚀/海生物）。uv 以米为单位由建模时写入。
+export function makeHullMaterial() {
+  if (!_steelTex) _steelTex = genSteel(quality.cfg.rockTex);
+  return new THREE.MeshStandardMaterial({
+    vertexColors: true, map: _steelTex.map, normalMap: _steelTex.normalMap,
+    roughnessMap: _steelTex.roughnessMap, roughness: 0.9, metalness: 0.35, envMapIntensity: 0.4,
+  });
 }
 
 const COMMON_V = /* glsl */`

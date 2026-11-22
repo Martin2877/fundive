@@ -17,7 +17,6 @@ import { TrainingSession } from './game/training.js';
 import { getCourse, getLesson } from '@fundive/shared/courses.js';
 import { randomSeed } from '@fundive/shared/rng.js';
 import { store } from './game/storage.js';
-import { mapLocked } from './game/guide.js';
 import { MSG } from '@fundive/shared/protocol.js';
 import { buildWorld } from './engine/world.js';
 import { DiverLamp } from './engine/lamp.js';
@@ -236,8 +235,6 @@ function plan(mapId, seed, multiplayer, netPlayers = []) {
         const w = whimLoadout(getMap(mapId), seed);
         pl = { ...pl, turnGas: 70, planDepth: 0, loadout: w.gear, notes: w.notes };
       }
-      // 未解锁的高难图：硬闯可以，本次不计评级
-      if (mapLocked(getMap(mapId), store.data)) (pl = pl || {}).unranked = true;
       startDive({ mapId, seed, plan: pl, solo: !multiplayer, netPlayers });
     },
     onBack: menu,

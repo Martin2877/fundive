@@ -121,6 +121,38 @@ export function genSand(s = 512) {
   return finish(s, h, alb, rough, 3.2);
 }
 
+// 船体钢壳：板缝+铆钉排+腐蚀坑+竖向锈痕垂流。albedo 近中性——锈色/海生物由顶点色承载。
+export function genSteel(s = 512) {
+  const h = new Float32Array(s * s), alb = new Uint8Array(s * s * 3), rough = new Float32Array(s * s);
+  for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) {
+    const u = x / s, v = y / s;
+    const wu = u + fbm(u, v, 4, 3, 41) * 0.006, wv = v + fbm(u, v, 4, 3, 42) * 0.006;
+    // 板缝：竖向列板 ~4 条/铺、水平接缝 ~5 条/铺
+    const du = Math.min(wu * 4 % 1, 1 - wu * 4 % 1), dv = Math.min(wv * 5 % 1, 1 - wv * 5 % 1);
+    const seam = (1 - smooth(0, 0.035, du)) + (1 - smooth(0, 0.028, dv));
+    // 铆钉：沿缝两侧的点阵凸起
+    const rivU = smooth(0.025, 0.045, du) * (1 - smooth(0.05, 0.075, du)) * (1 - smooth(0.3, 0.42, Math.abs((wv * 40) % 1 - 0.5) * 2));
+    const rivV = smooth(0.02, 0.04, dv) * (1 - smooth(0.045, 0.07, dv)) * (1 - smooth(0.3, 0.42, Math.abs((wu * 32) % 1 - 0.5) * 2));
+    const rivet = Math.max(rivU, rivV);
+    // 腐蚀坑（ voronoi 浅坑 ）
+    const pv = voronoi(wu, wv, 18, 43);
+    const pit = smooth(0.3, 0.08, pv.f1) * (pv.id > 0.4 ? 1 : 0.3);
+    const body = fbm(wu, wv, 5, 4, 44);
+    const fine = fbm(u, v, 90, 2, 45);
+    // 锈痕垂流：u 向低频条带、v 向拉长——高处流下
+    const streak = smooth(0.45, 0.75, fbm(u * 0.9, v * 0.08 + u * 0.15, 4, 3, 46) * 0.5 + 0.5);
+    const ht = body * 0.3 + fine * 0.08 + rivet * 0.25 - seam * 0.35 - pit * 0.3 + streak * 0.06;
+    h[y * s + x] = ht;
+    let lum = 0.62 + body * 0.22 + fine * 0.1 - pit * 0.16 - seam * 0.25;
+    // 锈痕处偏橙、其余中性——方便顶点色乘算
+    const r = lum * (1 + streak * 0.28), g = lum * (1 - streak * 0.08), b = lum * (1 - streak * 0.3);
+    const i = y * s + x;
+    alb[i * 3] = clamp01(r) * 255; alb[i * 3 + 1] = clamp01(g) * 255; alb[i * 3 + 2] = clamp01(b) * 255;
+    rough[i] = clamp01(0.62 + pit * 0.3 + streak * 0.18 + seam * 0.1 - body * 0.1);
+  }
+  return finish(s, h, alb, rough, 4.2);
+}
+
 // 竖向渐隐 alpha（光束、灯锥）
 export function genFade(stops, h = 128) {
   const cv = document.createElement('canvas'); cv.width = 4; cv.height = h;
