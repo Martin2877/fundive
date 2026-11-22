@@ -16,7 +16,7 @@ for (const m of MAPS) {
   const u2 = makeUniverse(m.id, 'TEST-SEED');
   const u3 = makeUniverse(m.id, 'OTHER-123');
   ok(JSON.stringify(u1) === JSON.stringify(u2), `${m.id} 同种子确定性`);
-  ok(u1.objective && MAPS.find(x => x.id === m.id).objectives.includes(u1.objective.type), `${m.id} 目标类型合法: ${u1.objective.type}`);
+  ok(u1.objective && (MAPS.find(x => x.id === m.id).objectives.includes(u1.objective.type) || u1.objective.type === 'census'), `${m.id} 目标类型合法: ${u1.objective.type}`);
   if (u1.objective.type === 'photo') ok(!!SPECIES[u1.objective.species], `${m.id} 拍摄目标物种存在: ${u1.objective.species}`);
   ok(u1.placements.length >= 0, `${m.id} 布点 ${u1.placements.length} 处`);
   console.log(`    ${m.name} | ${u1.name} | ${objectiveText(u1)} | 风味:${u1.flavor.join('、') || '无'}`);
@@ -24,6 +24,15 @@ for (const m of MAPS) {
 const types = new Set();
 for (let i = 0; i < 40; i++) types.add(makeUniverse('thamluang', 'S' + i).objective.type);
 ok(types.size >= 3, `睡美人洞 40 个宇宙覆盖 ${types.size} 种目标类型: ${[...types].join(',')}`);
+{
+  // 全图 × 60 种子：生成必须终止（曾因短路线巡线死循环卡死菜单），巡线 3 点 / 普查 3 种 / 附加挑战 ≥2
+  let bad = 0;
+  for (const m of MAPS.filter(x => !x.hidden)) for (let i = 0; i < 60; i++) {
+    const u = makeUniverse(m.id, 'Z' + i), o = u.objective;
+    if ((o.type === 'survey' && o.legs.length !== 3) || (o.type === 'census' && o.list.length !== 3) || u.bonus.length < 2) bad++;
+  }
+  ok(!bad, `全图 60 种子：目标/附加挑战生成完整 (异常 ${bad})`);
+}
 
 console.log('== 联机协议 ==');
 const PORT = 8899;

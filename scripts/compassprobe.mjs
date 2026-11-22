@@ -1,8 +1,11 @@
 // 罗盘探针：教学「指北针导航」课 -> HUD 罗盘 -> 对准◆保持 -> 到点 -> 回程对准 -> 回点
 import { chromium } from 'playwright-core';
+import { seedUnlock } from './_seed.mjs';
 const URL = process.argv.find(a => a.startsWith('--url='))?.split('=')[1] || 'http://localhost:5173/';
 const browser = await chromium.launch({ channel: 'chrome', args: ['--use-gl=angle', '--use-angle=metal', '--ignore-gpu-blocklist'] });
-const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+await seedUnlock(ctx);
+const page = await ctx.newPage();
 page.on('pageerror', e => console.log('PAGEERROR', e.message));
 await page.goto(URL);
 await page.waitForSelector('[data-d=train]');

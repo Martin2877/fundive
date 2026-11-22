@@ -32,11 +32,14 @@ export const store = {
     save(d);
   },
 
-  addChapter(mapId, ending) {
+  addChapter(mapId, ending, grade) {
     const d = load();
     d.chapters = d.chapters || {};
     const c = d.chapters[mapId] || { plays: 0 };
     c.plays += 1; c.done = true; c.ending = ending;
+    // 评级只留最好的一次：S>A>B>C
+    const ORD = { S: 3, A: 2, B: 1, C: 0 };
+    if (grade && (ORD[grade] ?? -1) > (ORD[c.grade] ?? -1)) c.grade = grade;
     d.chapters[mapId] = c;
     save(d);
   },

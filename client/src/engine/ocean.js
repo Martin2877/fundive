@@ -41,11 +41,22 @@ export function makeTerrain(map, seed) {
 }
 
 // 沉船箱体（世界坐标 AABB）。侧壁留门洞、甲板留舱口、舱壁留通道——可以钻进去，也可能被卡住/搅沙。
-// 返回 { boxes 碰撞体, props 内景道具（也参与碰撞，带各自颜色） }
+// w.layout 选船型：'coaster' 沿岸小货轮（默认）/ 'liner' 侧倾客轮 / 'cargo' 二战军需货轮。
+// 返回 { boxes 碰撞体, props 内景道具（也参与碰撞，带各自颜色）, extras 桅杆/烟囱等非箱几何 }
 function wreckBoxes(w, y0, rng) {
-  const B = [], props = [], L = w.len, W = w.wid, H = w.hei;
-  const box = (x0, x1, a, b, z0, z1) => B.push({ min: new THREE.Vector3(w.x + x0, y0 + a, w.z + z0), max: new THREE.Vector3(w.x + x1, y0 + b, w.z + z1) });
-  const prop = (x0, x1, a, b, z0, z1, c) => props.push({ min: new THREE.Vector3(w.x + x0, y0 + a, w.z + z0), max: new THREE.Vector3(w.x + x1, y0 + b, w.z + z1), c });
+  const layout = w.layout || 'coaster';
+  if (layout === 'liner') return linerBoxes(w, y0, rng);
+  if (layout === 'cargo') return cargoBoxes(w, y0, rng);
+  return coasterBoxes(w, y0, rng);
+}
+
+const _v3 = (x, y, z) => new THREE.Vector3(x, y, z);
+
+// 沿岸小货轮（海鹞号原型）：36m 单货舱 + 小舰桥——沉船入门
+function coasterBoxes(w, y0, rng) {
+  const B = [], props = [], extras = [], L = w.len, W = w.wid, H = w.hei;
+  const box = (x0, x1, a, b, z0, z1) => B.push({ min: _v3(w.x + x0, y0 + a, w.z + z0), max: _v3(w.x + x1, y0 + b, w.z + z1) });
+  const prop = (x0, x1, a, b, z0, z1, c) => props.push({ min: _v3(w.x + x0, y0 + a, w.z + z0), max: _v3(w.x + x1, y0 + b, w.z + z1), c });
   box(-L / 2, L / 2, 0, 0.6, -W / 2, W / 2);
   for (const [x0, x1] of [[-18, -10], [-8, -1.5], [3, 12], [14, 18]]) {
     const top = H - 1.2 - rng() * 1.4;
@@ -56,7 +67,7 @@ function wreckBoxes(w, y0, rng) {
   box(L / 2 - 0.5, L / 2, 0, H - 0.6, -W / 2, W / 2);
   for (const [x0, x1] of [[-18, -12], [-9, -3], [2, 8], [11, 18]]) box(x0, x1, H - 1.2, H - 0.7, -W / 2, W / 2);
   for (const [z0, z1] of [[-W / 2, -1.5], [1.5, W / 2]]) box(-1, -0.6, 0, H - 1.2, z0, z1);
-  // 舰桥海图室：不再是实心块——四面墙 + 顶，朝船首的前壁留门洞（从甲板舱口翻上来就能进）
+  // 舰桥海图室：四面墙 + 顶，朝船首的前壁留门洞（从甲板舱口翻上来就能进）
   box(12, 12.4, H - 0.7, H + 2.2, -3, -0.9);
   box(12, 12.4, H - 0.7, H + 2.2, 0.9, 3);
   box(12, 12.4, H + 2.2, H + 2.9, -0.9, 0.9);
@@ -78,8 +89,127 @@ function wreckBoxes(w, y0, rng) {
   // 海图室里：海图桌 + 保险柜
   prop(13.8, 15.2, H - 0.7, H + 0.1, -0.7, 0.7, [0.4, 0.3, 0.2]);
   prop(16.0, 16.5, H - 0.7, H + 0.5, -2.4, -1.4, [0.24, 0.3, 0.3]);
+  // 桅杆两根 + 烟囱
+  for (const [mx, mh] of [[-6, 13], [4, 11]]) {
+    const m = new THREE.CylinderGeometry(0.18, 0.28, mh, 8); m.translate(w.x + mx, y0 + H - 0.7 + mh / 2, w.z);
+    extras.push(colored(m.toNonIndexed(), [0.5, 0.34, 0.26]));
+  }
+  const fn = new THREE.CylinderGeometry(0.9, 1.1, 4, 10); fn.translate(w.x + 14.5, y0 + H + 5.3, w.z);
+  extras.push(colored(fn.toNonIndexed(), [0.45, 0.3, 0.24]));
   for (const pr of props) B.push({ min: pr.min, max: pr.max });
-  return { boxes: B, props };
+  return { boxes: B, props, extras };
+}
+
+// 侧倾客轮（SS Yongala 原型）：整船向右倒在沙上——甲板变成斜墙阶梯，
+// 上层建筑整个拍在旁边的沙地上，烟囱/桅杆横躺。只有一个舱口槽能钻进去。
+function linerBoxes(w, y0, rng) {
+  const B = [], props = [], extras = [], L = w.len, W = w.wid;
+  const box = (x0, x1, a, b, z0, z1) => B.push({ min: _v3(w.x + x0, y0 + a, w.z + z0), max: _v3(w.x + x1, y0 + b, w.z + z1) });
+  const prop = (x0, x1, a, b, z0, z1, c) => props.push({ min: _v3(w.x + x0, y0 + a, w.z + z0), max: _v3(w.x + x1, y0 + b, w.z + z1), c });
+  // 上舷侧板：一面贯穿全船的长墙（舱口槽在它身上开了个门洞）
+  box(-L / 2, -2, 0, 7.2, 1.0, 3.0);
+  box(2.5, L / 2, 0, 7.2, 1.0, 3.0);
+  box(-2, 2.5, 5.6, 7.2, 1.0, 3.0);            // 槽口上沿封板——门洞高 5.6m
+  // 倾覆甲板：三级台阶从舷墙顶落到沙地——能"爬"下去的斜面
+  // 中段断开成舱口坑（x -1.6..2.1, z -2.2..1.0, 深 5.2）：顶口跳进去，或从舷侧门洞穿进来
+  box(-L / 2, -1.6, 0, 5.2, -2.2, 1.0);
+  box(2.1, L / 2, 0, 5.2, -2.2, 1.0);
+  box(-L / 2 + 2, L / 2, 0, 3.4, -4.6, -2.2);
+  box(-L / 2 + 6, L / 2, 0, 1.7, -6.4, -4.6);
+  // 倒塌的舰桥：上层建筑整个拍在 -z 侧的沙地上
+  box(8, 16, 0, 2.8, -11, -7);
+  box(10, 14.5, 0, 4.0, -9.5, -7.5);           // 舰桥残块凸起（海图室在这里）
+  box(9, 15.5, 2.8, 3.4, -8.5, -7.6);          // 破碎顶盖
+  // 散落的舾装：救生艇架、通风筒碎块
+  box(-20, -17, 0, 1.2, -9, -7);
+  box(-9, -6.5, 0, 0.9, -10.5, -9);
+  // 内腔道具：滚落的板条箱、保险柜、铜钟座
+  prop(-1.4, -0.4, 0.6, 1.6, -1.6, -0.7, [0.42, 0.38, 0.24]);
+  prop(0.8, 1.8, 0.6, 1.4, -1.5, -0.6, [0.5, 0.3, 0.22]);
+  prop(0.1, 0.9, 0.6, 1.2, -0.5, 0.2, [0.24, 0.3, 0.3]);
+  prop(11, 12.6, 2.9, 3.7, -9.1, -8.2, [0.4, 0.3, 0.2]);   // 舰桥里的海图桌
+  // 烟囱横躺沙上 + 两根倒下的桅杆（非箱几何，只做视觉+不参与碰撞）
+  const fn = new THREE.CylinderGeometry(1.0, 1.2, 9, 10); fn.rotateZ(Math.PI / 2); fn.translate(w.x - 12, y0 + 1.0, w.z - 13);
+  extras.push(colored(fn.toNonIndexed(), [0.45, 0.3, 0.24]));
+  for (const [mx, mz, ml] of [[-4, -9.5, 12], [-16, -11.5, 10]]) {
+    const m = new THREE.CylinderGeometry(0.16, 0.24, ml, 8); m.rotateZ(Math.PI / 2.2); m.translate(w.x + mx, y0 + 0.3, w.z + mz);
+    extras.push(colored(m.toNonIndexed(), [0.5, 0.34, 0.26]));
+  }
+  for (const pr of props) B.push({ min: pr.min, max: pr.max });
+  return { boxes: B, props, extras };
+}
+
+// 二战军需货轮（SS Thistlegorm 原型）：前后两个开敞大货舱（卡车/弹药箱阵列）、
+// 舯部高舰桥、船尾高射炮台 + 断裂下陷的船尾段。
+function cargoBoxes(w, y0, rng) {
+  const B = [], props = [], extras = [], L = w.len, W = w.wid, H = w.hei;
+  const box = (x0, x1, a, b, z0, z1) => B.push({ min: _v3(w.x + x0, y0 + a, w.z + z0), max: _v3(w.x + x1, y0 + b, w.z + z1) });
+  const prop = (x0, x1, a, b, z0, z1, c) => props.push({ min: _v3(w.x + x0, y0 + a, w.z + z0), max: _v3(w.x + x1, y0 + b, w.z + z1), c });
+  box(-L / 2, L / 2, 0, 0.6, -W / 2, W / 2);                      // 船底
+  const deck = H - 1.2;                                           // 甲板开口下沿 ~6.8
+  // 两舷侧板：分段留锈穿的洞
+  for (const [x0, x1] of [[-28, -22], [-21, -17], [-16, -7], [-6, 1], [2, 13], [14, 20], [21, 24]]) {
+    const top = deck - rng() * 1.2;
+    box(x0, x1, 0, top, -W / 2, -W / 2 + 0.45);
+    box(x0, x1, 0, top, W / 2 - 0.45, W / 2);
+  }
+  box(-L / 2, -L / 2 + 0.5, 0, H - 0.6, -W / 2, W / 2);           // 船首端板
+  // 甲板盖（货舱口外圈 + 船首/船尾甲板）
+  for (const [x0, x1] of [[-28, -16], [15, 22]]) box(x0, x1, deck, deck + 0.5, -W / 2, W / 2);
+  for (const [x0, x1] of [[-16, -6], [2, 14]]) {                  // 两个大货舱的口沿（口沿可站人）
+    box(x0, x1, deck, deck + 0.5, -W / 2, -3.6);
+    box(x0, x1, deck, deck + 0.5, 3.6, W / 2);
+  }
+  // 一号货舱（x -16..-6）：舱壁 + 卡车排
+  box(-16, -15.4, 0, deck, -3.6, 3.6);
+  box(-6.6, -6, 0, deck, -3.6, 3.6);
+  const hold1 = [[-14.5, -2.9], [-11.5, -2.9], [-8.5, -2.9]];
+  for (const [tx, tz] of hold1) {                                 // 三辆军用卡车
+    prop(tx, tx + 2.4, 0.6, 2.0, tz - 0.35, tz + 1.55, [0.42, 0.34, 0.2]);
+    prop(tx + 0.3, tx + 1.4, 2.0, 3.0, tz, tz + 1.2, [0.4, 0.32, 0.18]);
+    prop(tx - 0.15, tx + 0.4, 0.6, 0.95, tz - 0.3, tz + 1.5, [0.15, 0.13, 0.12]);
+  }
+  const crateCols = [[0.22, 0.4, 0.45], [0.42, 0.38, 0.24], [0.5, 0.3, 0.22], [0.3, 0.36, 0.3]];
+  for (const [x, z, s, hh] of [[-14.2, 1.6, 1.3, 1.1], [-12.4, 1.8, 1.1, 1.5], [-9.8, 1.7, 1.2, 0.9], [-7.6, 1.8, 1.0, 1.3]])
+    prop(x, x + s, 0.6, 0.6 + hh, z, z + 1.1, crateCols[props.length % crateCols.length]);
+  // 二号货舱（x 2..14）：弹药箱方阵 + 一台履带牵引车
+  box(1.4, 2, 0, deck, -3.6, 3.6);
+  box(14, 14.6, 0, deck, -3.6, 3.6);
+  for (let i = 0; i < 8; i++) {
+    const cx = 3.2 + (i % 4) * 1.9, cz = -3.2 + Math.floor(i / 4) * 2.2;
+    prop(cx, cx + 1.3, 0.6, 0.6 + 0.9 + rng() * 0.5, cz, cz + 1.2, crateCols[i % crateCols.length]);
+  }
+  prop(9.5, 12.8, 0.6, 1.9, -2.9, -0.9, [0.38, 0.3, 0.2]);          // 履带牵引车
+  prop(10, 12.4, 1.9, 2.7, -2.6, -1.2, [0.35, 0.27, 0.17]);
+  prop(9.6, 10.4, 0.6, 1.1, 1.4, 2.6, [0.15, 0.13, 0.12]);          // 散落的轮胎
+  for (const [x, z] of [[11.2, 1.6], [11.8, 2.1], [12.3, 1.7]]) prop(x, x + 0.55, 0.6, 1.6, z, z + 0.55, [0.5, 0.28, 0.18]); // 油桶
+  // 舯部舰桥（x -6..1, 骑在两舱之间）：四面墙 + 顶，-z 面留门洞
+  box(-6, -5.6, deck, deck + 3.4, -2.8, 2.8);
+  box(0.6, 1, deck, deck + 3.4, -2.8, 2.8);
+  box(-6, 1, deck, deck + 3.4, 2.4, 2.8);
+  box(-6, 1, deck + 2.2, deck + 3.4, -2.8, -2.4);
+  box(-6, -3.4, deck, deck + 2.2, -2.8, -2.4);                      // 门洞：z 负面前壁左半
+  box(-1.8, 1, deck, deck + 2.2, -2.8, -2.4);
+  box(-6, 1, deck + 3.4, deck + 3.9, -2.8, 2.8);
+  prop(-4.6, -3.4, deck, deck + 0.9, -0.6, 0.6, [0.4, 0.3, 0.2]);   // 海图桌
+  prop(-1.2, -0.6, deck, deck + 1.3, 1.6, 2.3, [0.24, 0.3, 0.3]);   // 保险柜
+  // 船尾断裂段：x 24..31 整体下陷一截、向 -z 错开（与主船体间留了道缝）
+  box(24.6, 31, 0, 4.4, -W / 2 - 1.2, W / 2 - 1.8);
+  box(24.6, 31, 4.4, 4.9, -W / 2 - 1.2, W / 2 - 1.8);
+  box(30.5, 31, 0, 4.9, -W / 2 - 1.2, W / 2 - 1.8);                 // 尾端板
+  // 高射炮台（在断裂缝前的船尾甲板上）：炮座箱 + 炮管圆柱
+  box(20, 23, deck + 0.5, deck + 1.1, -1.6, 1.6);
+  const gun = new THREE.CylinderGeometry(0.14, 0.22, 4.6, 8); gun.rotateX(-Math.PI / 3); gun.translate(w.x + 21.5, y0 + deck + 2.6, w.z - 0.4);
+  extras.push(colored(gun.toNonIndexed(), [0.3, 0.32, 0.3]));
+  // 两根竖桅（前桅在船首甲板，主桅在舰桥顶）+ 舰桥后的烟囱
+  for (const [mx, mz, my, mh] of [[-20, 0, deck + 0.5, 14], [-2.5, 0, deck + 3.9, 9]]) {
+    const m = new THREE.CylinderGeometry(0.16, 0.26, mh, 8); m.translate(w.x + mx, y0 + my + mh / 2, w.z + mz);
+    extras.push(colored(m.toNonIndexed(), [0.5, 0.34, 0.26]));
+  }
+  const fn = new THREE.CylinderGeometry(0.8, 1.0, 3.6, 10); fn.translate(w.x + 4, y0 + deck + 1.9, w.z);
+  extras.push(colored(fn.toNonIndexed(), [0.45, 0.3, 0.24]));
+  for (const pr of props) B.push({ min: pr.min, max: pr.max });
+  return { boxes: B, props, extras };
 }
 
 const colored = (geo, c, jitter = 0.1) => {
@@ -95,7 +225,7 @@ export function buildOcean(map, uni) {
   const group = new THREE.Group();
   const { h, plateau } = makeTerrain(map, uni.seed);
   const wr = g.wreck;
-  const { boxes, props } = wr ? wreckBoxes(wr, plateau, rng) : { boxes: [], props: [] };
+  const { boxes, props, extras } = wr ? wreckBoxes(wr, plateau, rng) : { boxes: [], props: [], extras: [] };
 
   // —— 海底网格 ——（多铺 70m：人被夹在活动界内，崖边看到的不是"世界尽头"而是继续延伸的海床）
   const SEG = 160, size = (g.half + 70) * 2;
@@ -106,7 +236,7 @@ export function buildOcean(map, uni) {
     const x = pa.getX(i), z = pa.getZ(i), y = h(x, z);
     pa.setY(i, y);
     const patch = smooth(0.1, 0.55, fbm3(x * 0.07 + 11, 0, z * 0.07, 3));
-    const dark = 0.82 + 0.25 * fbm3(x * 0.3, y * 0.2, z * 0.3, 2);
+    const dark = (0.82 + 0.25 * fbm3(x * 0.3, y * 0.2, z * 0.3, 2)) * (g.rockTint || 1);
     const depthK = Math.max(0.55, 1 - Math.max(0, -y - 12) * 0.012);
     col[i * 3] = (0.95 - patch * 0.3) * dark * depthK; col[i * 3 + 1] = (0.88 - patch * 0.22) * dark * depthK; col[i * 3 + 2] = (0.72 - patch * 0.1) * dark * depthK;
   }
@@ -131,12 +261,7 @@ export function buildOcean(map, uni) {
       bg.translate(c.x, c.y, c.z);
       geos.push(colored(bg.toNonIndexed(), pr.c, 0.14));
     }
-    for (const [mx, mh] of [[-6, 13], [4, 11]]) {
-      const m = new THREE.CylinderGeometry(0.18, 0.28, mh, 8); m.translate(wr.x + mx, plateau + wr.hei - 0.7 + mh / 2, wr.z);
-      geos.push(colored(m.toNonIndexed(), [0.5, 0.34, 0.26]));
-    }
-    const fn = new THREE.CylinderGeometry(0.9, 1.1, 4, 10); fn.translate(wr.x + 14.5, plateau + wr.hei + 5.3, wr.z);
-    geos.push(colored(fn.toNonIndexed(), [0.45, 0.3, 0.24]));
+    geos.push(...extras);
     const hull = new THREE.Mesh(mergeGeometries(geos.map(x => { x.deleteAttribute('uv'); return x; })), makeCaveMaterial({ sand: 0, normalK: 0.9, roughness: 0.9 }));
     hull.geometry.computeVertexNormals();
     group.add(hull);
@@ -278,9 +403,9 @@ export function buildOcean(map, uni) {
   const near = (x, z) => nodes.some(n => Math.hypot(n.pos.x - x, n.pos.z - z) < 14);
   const minY = g.pit ? -(map.maxDepth + 20) : -30;   // 蓝洞图：装饰可以一直贴到井底
   const spot = () => { for (let t = 0; t < 30; t++) { const x = range(rng, -g.half * 0.85, g.half * 0.85), z = range(rng, -g.half * 0.85, g.half * 0.85), y = h(x, z); const inWreck = wr && Math.abs(x - wr.x) < wr.len / 2 + 3 && Math.abs(z - wr.z) < wr.wid / 2 + 3; const inPit = g.pit && Math.hypot(x - g.pit.x, z - g.pit.z) < g.pit.r * 0.75; if (!inWreck && !inPit && y > minY && (near(x, z) || chance(rng, 0.35))) return [x, y, z]; } return null; };
-  const nRock = { low: 90, mid: 150, high: 220 }[QC], nCoral = g.shallow < 12 ? { low: 220, mid: 380, high: 600 }[QC] : { low: 70, mid: 120, high: 200 }[QC];
-  const rocks = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), makeCaveMaterial({ sand: 0.3, normalK: 1.2 }), nRock);
-  const rg = rocks.geometry, rcol = new Float32Array(rg.attributes.position.count * 3).fill(0.55);
+  const nRock = { low: 90, mid: 150, high: 220 }[QC], nCoral = Math.round((g.shallow < 12 ? { low: 220, mid: 380, high: 600 }[QC] : { low: 70, mid: 120, high: 200 }[QC]) * (g.coralK || 1));
+  const rocks = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), makeCaveMaterial({ sand: g.rockTint ? 0.05 : 0.3, normalK: 1.2 }), nRock);
+  const rg = rocks.geometry, rcol = new Float32Array(rg.attributes.position.count * 3).fill(0.55 * (g.rockTint || 1));
   rg.setAttribute('color', new THREE.BufferAttribute(rcol, 3));
   const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), S = new THREE.Vector3();
   let nr = 0;
@@ -314,6 +439,24 @@ export function buildOcean(map, uni) {
   }
   coral.count = nc;
   group.add(coral);
+
+  // —— 大蓝洞：井壁水下钟乳石（远古溶洞遗迹） ——
+  if (g.pit) {
+    const nSt = { low: 24, mid: 40, high: 64 }[QC];
+    const stGeo = new THREE.ConeGeometry(0.45, 1, 6);
+    stGeo.rotateX(Math.PI); stGeo.translate(0, -0.5, 0);
+    const stMesh = new THREE.InstancedMesh(stGeo, makeCaveMaterial({ sand: 0, normalK: 1.0, roughness: 0.85 }), nSt);
+    for (let i = 0; i < nSt; i++) {
+      const a = (i / nSt) * Math.PI * 2 + range(rng, -0.15, 0.15);
+      const rr = g.pit.r * range(rng, 0.72, 0.88);
+      const sy = range(rng, -16, -34);
+      const len = range(rng, 2.2, 5.5), rad = range(rng, 0.45, 1.15);
+      E.set(range(rng, -0.08, 0.08), rng() * 6, range(rng, -0.08, 0.08)); Q.setFromEuler(E);
+      M4.compose(new THREE.Vector3(g.pit.x + Math.cos(a) * rr, sy, g.pit.z + Math.sin(a) * rr), Q, S.set(rad, len, rad));
+      stMesh.setMatrixAt(i, M4);
+    }
+    group.add(stMesh);
+  }
 
   // —— 海藻森林：高高的褐藻叶片从海底长到天光里（软体不做碰撞，穿行其间） ——
   if (g.kelp) {

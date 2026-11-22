@@ -530,7 +530,8 @@ class Trainer {
     if (c.t === 'depth' || c.t === 'ascend') {
       const at = c.t === 'depth' ? c.at : c.to;
       const inZone = Math.abs(p.depth() - at) <= (c.tol || 0.5);
-      live.push(t('目标 {at}m · 深度 {d}m · 浮力 {b}', { at, d: p.depth().toFixed(1), b: (p.buoy >= 0 ? '+' : '') + p.buoy.toFixed(2) }) + (inZone ? ` <b style="color:#7fe9ea">${t('✓在区间内')}</b>` : ''));
+      const bFeel = p.buoy > 0.25 ? t('偏浮(轻飘)') : p.buoy > 0.06 ? t('微浮') : p.buoy < -0.25 ? t('偏沉(下坠)') : p.buoy < -0.06 ? t('微沉') : t('中性悬浮');
+      live.push(t('目标 {at}m · 深度 {d}m · {b}', { at, d: p.depth().toFixed(1), b: bFeel }) + (inZone ? ` <b style="color:#7fe9ea">${t('✓在区间内')}</b>` : ''));
       if (c.t === 'ascend') live.push(t('上升速度 {v} m/s（限 {r}）', { v: (p.ascRate > 0 ? '' : '−') + Math.abs(p.ascRate).toFixed(2), r: c.rate }));
     }
     else if (c.t === 'hold' || c.t === 'combo') live.push(t('已按 {a} / {b}s', { a: (st.prog || 0).toFixed(1), b: c.min }));

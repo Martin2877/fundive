@@ -22,6 +22,8 @@ const FISH_BODY = {
   parrotfish: { c: 0x2fb8a0, len: 0.55, h: 0.62, w: 0.44, tail: 'lunate', dorsal: 'long', eye: 0.020, beak: 0xefe8d0, edge: 0xe04a8a },
   grouper:    { c: 0x8a6a4a, len: 0.62, h: 0.80, w: 0.60, tail: 'round', dorsal: 'long', eye: 0.024, mouth: 0.085, mottle: 0x54432e },
   shark:      { c: 0x7d8a90, len: 0.95, h: 0.38, w: 0.34, tail: 'hetero', dorsal: 'tall', eye: 0.017, snout: 0.16, pec: 0.34, gills: 4, belly: 0xd6dcd8 },
+  barracuda:  { c: 0xb0c2ce, len: 0.78, h: 0.24, w: 0.20, tail: 'fork', dorsal: 'short', eye: 0.018, snout: 0.14, belly: 0xe6eef2 },
+  napoleon:   { c: 0x2a9a7e, len: 0.85, h: 0.72, w: 0.44, tail: 'round', dorsal: 'long', eye: 0.022, horn: true, mouth: 0.06, headW: 1.25, belly: 0x7cd4b8 },
   whitefish:  { c: 0xc9d4d6, len: 0.46, h: 0.44, w: 0.30, tail: 'fork', dorsal: 'short', eye: 0.020 },
 };
 const _fTri = (pts) => {
@@ -177,7 +179,7 @@ export function makeFish(sp, rng) {
   return g;
 }
 
-const FISH_SCALE = { damselfish: 0.55, clownfish: 0.5, parrotfish: 1.5, grouper: 3.2 };
+const FISH_SCALE = { damselfish: 0.55, clownfish: 0.5, parrotfish: 1.5, grouper: 3.2, barracuda: 1.35, napoleon: 2.3 };
 export class Fish {
   constructor(sp, anchor, rng) {
     this.sp = sp;
@@ -205,7 +207,17 @@ export class Fish {
       const d = this.obj.position.distanceTo(ctx.lightPos);
       if (d < 4) { this.target.copy(this.obj.position).sub(ctx.lightPos).setLength(this.range).add(this.center); this.flee = 1; }
     }
-    // 个人空间：不管什么鱼，都不该贴到潜水员脸前（灯会把贴脸的鱼打成一团光斑）
+    // 个人空间与互动：怕生小鱼靠近或照灯会散开，好奇的拿破仑鱼会凑近观望
+    if (ctx?.playerPos) {
+      const dp = this.obj.position.distanceTo(ctx.playerPos);
+      if (this.sp === 'napoleon') {
+        if (dp < 8 && dp > 2.3) this.target.copy(ctx.playerPos).lerp(this.center, 0.35);
+      } else if (dp < 2.4) {
+        _v2.subVectors(this.obj.position, ctx.playerPos).setLength(3.0);
+        this.target.copy(this.obj.position).add(_v2);
+        this.flee = 1.2;
+      }
+    }
     if (ctx?.lightPos) {
       const d2 = this.obj.position.distanceToSquared(ctx.lightPos);
       if (d2 < 3.24) { _v2.subVectors(this.obj.position, ctx.lightPos).setLength(2.6); this.target.copy(this.obj.position).add(_v2); this.flee = 1; }

@@ -1,9 +1,12 @@
 // 非常规出口探针：找 altExits -> 触发 -> 验证结局
 import { chromium } from 'playwright-core';
+import { seedUnlock } from './_seed.mjs';
 const URL = process.argv.find(a => a.startsWith('--url='))?.split('=')[1] || 'http://localhost:5173/';
 const WANT = process.argv.find(a => a.startsWith('--kind='))?.split('=')[1] || null;
 const browser = await chromium.launch({ channel: 'chrome', args: ['--use-gl=angle', '--use-angle=metal', '--ignore-gpu-blocklist'] });
-const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+await seedUnlock(ctx);
+const page = await ctx.newPage();
 page.on('pageerror', e => console.log('PAGEERROR', e.message));
 const seen = new Set();
 for (let mi = 0; mi < 8; mi++) {

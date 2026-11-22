@@ -54,8 +54,8 @@ uniform sampler2D uMap; uniform vec3 uColor, uLampColor;
 varying float vA; varying float vLit;
 void main() {
   float m = texture2D(uMap, gl_PointCoord).a;
-  vec3 col = uColor * 0.55 + uLampColor * vLit * 2.0;
-  gl_FragColor = vec4(col, m * vA * (0.3 + vLit * 1.6));
+  vec3 col = min(uColor * 0.5 + uLampColor * vLit * 1.15, vec3(0.92));
+  gl_FragColor = vec4(col, m * vA * (0.26 + vLit * 1.15));
 }`;
 
 export class WaterFX {

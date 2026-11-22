@@ -1,10 +1,13 @@
 // 气室上岸探针：找带 dry 的气室 -> 传送 -> 验证 onLand/走动/下水
 import { chromium } from 'playwright-core';
+import { seedUnlock } from './_seed.mjs';
 import fs from 'node:fs';
 const URL = process.argv.find(a => a.startsWith('--url='))?.split('=')[1] || 'http://localhost:5173/';
 fs.mkdirSync('reports/shots', { recursive: true });
 const browser = await chromium.launch({ channel: 'chrome', args: ['--use-gl=angle', '--use-angle=metal', '--ignore-gpu-blocklist'] });
-const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+await seedUnlock(ctx);
+const page = await ctx.newPage();
 page.on('pageerror', e => console.log('PAGEERROR', e.message));
 let found = false;
 for (let mi = 0; mi < 7 && !found; mi++) {

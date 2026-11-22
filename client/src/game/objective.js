@@ -60,7 +60,10 @@ export class Objective {
       this.victimDef = uni.objective.victim;
       this.prompt = t('接近 {n}', { n: t(uni.objective.victim.name) });
       this.towOff = new THREE.Vector3();
-    } else if (this.type === 'survey') {
+    }
+    // 任务链线索点：打捞/搜救的两阶段——先在半途发现踪迹，再到目标点执行
+    this._mkClue(scene, cave);
+    if (this.type === 'survey') {
       // 巡线标记：沿主路线三处标记石，全部摸过才算完成
       const mk = (k) => {
         const g = new THREE.Group();
@@ -95,10 +98,47 @@ export class Objective {
     }
   }
 
+  // 任务链线索点：universe 给了 steps[0].kind='clue' 时在半途节点放一个会发光的遗留物。
+  // 找到它之后罗盘/航段才指向真正的目标点——先循迹，再执行。
+  _mkClue(scene, cave) {
+    const steps = this.uni.objective.steps || [];
+    if (!steps.length || steps[0].kind !== 'clue') return;
+    const node = cave.nodes[steps[0].node];
+    if (!node) return;
+    const color = this.type === 'rescue' ? 0xff8a6a : 0x9fe8c0;
+    const g = new THREE.Group();
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22, 0.13, 0.17),
+      new THREE.MeshStandardMaterial({ color: 0x4a443c, roughness: 0.55, metalness: 0.4, emissive: color, emissiveIntensity: 0.35 })
+    );
+    g.add(m);
+    g.add(new THREE.PointLight(color, 4, 8));
+    g.position.copy(node.pos).add(new THREE.Vector3(0.6, -node.r * 0.5, -0.5));
+    scene.add(g);
+    this.clueObj = g;
+    this.stepI = 0;
+    // objectiveSpot 先指线索点；找到后再推给真正的目标物
+    this.spot = cave.objectiveSpot;
+    this.spot?.pos.copy(g.position);
+  }
+
   // 每帧检查：返回 hint 文本或 null
   update(dt, ctx) {
     const { player, talk } = ctx;
     if (this.done) return null;
+
+    // 线索阶段：靠近即发现，目标点指针移向真正的目标物
+    if (this.clueObj && this.stepI === 0) {
+      if (player.pos.distanceTo(this.clueObj.position) < 1.8) {
+        this.stepI = 1;
+        this.clueObj.visible = false;
+        talk?.(this.type === 'rescue'
+          ? '一只面镜、半块配重压在这里——人往深处去了。'
+          : '锈水和拖痕指向更深处——东西是从那边拖走的。');
+        ctx.audio?.ok?.();
+        this.spot?.pos.copy(this.targetObj.position);
+      }
+    }
 
     switch (this.type) {
       case 'explore': {
@@ -138,6 +178,16 @@ export class Objective {
           this.victim.position.lerp(_v.copy(player.pos).add(new THREE.Vector3(Math.sin(player.yaw + 0.8) * 1.1, -0.2, Math.cos(player.yaw + 0.8) * 1.1)), Math.min(1, dt * 3));
           this.victim.userData.update(dt, 0.5);
           if (ctx.atExit) { this.done = true; ctx.fx?.emit('objective', { done: true }); }
+        }
+        break;
+      }
+      case 'census': {
+        const left = this._censusLeft(ctx);
+        this._lastShots = (this.uni.objective.list || []).filter(sp => !left.includes(sp));
+        if (!left.length) {
+          this.done = true;
+          talk?.('名单上的生物全拍齐了。普查完成——回出口。');
+          ctx.fx?.emit('objective', { done: true });
         }
         break;
       }
@@ -197,14 +247,25 @@ export class Objective {
     return this.targetObj && player.pos.distanceTo(this.targetObj.position) < d;
   }
 
-  statusText(uni) {
+  _censusLeft(ctx) {
+    const shots = ctx.photos?.shots || [];
+    return (this.uni.objective.list || []).filter(sp => !shots.some(s => s.sp === sp && s.stars > 0));
+  }
+
+  statusText(uni, ctx) {
     const o = uni.objective;
     if (this.done) return t('✓ 目标完成 —— 回出口');
+    const st = o.steps?.length ? t(' · {a}/{b}步', { a: (this.stepI ?? 0) + 1, b: o.steps.length + 1 }) : '';
     switch (o.type) {
+      case 'census': {
+        const shots = this._lastShots || [];
+        const names = (o.list || []).map(sp => (shots.includes(sp) ? '✓' : '○') + spName(sp)).join(' ');
+        return t('目标：生物普查 {a}/{b}', { a: shots.length, b: (o.list || []).length }) + ` · ${names}`;
+      }
       case 'explore': return t('目标：抵达「{p}」标记石', { p: t(o.place) });
       case 'photo': return t('目标：拍到 {n} ≥{q}★', { n: spName(o.species), q: o.quality });
-      case 'salvage': return t('目标：打捞 {n}', { n: t(o.item.name) }) + (this.progress ? `（${t(this.progress)}）` : '');
-      case 'rescue': return t('目标：找到并拖出 {n}', { n: t(o.victim.name) });
+      case 'salvage': return t('目标：打捞 {n}', { n: t(o.item.name) }) + (this.progress ? `（${t(this.progress)}）` : '') + st;
+      case 'rescue': return t('目标：找到并拖出 {n}', { n: t(o.victim.name) }) + st;
       case 'survey': return t('目标：巡线标记 {a}/{b}', { a: this.legs ? this.legs.filter(l => l.hit).length : 0, b: this.legs ? this.legs.length : 3 });
       default: return '';
     }

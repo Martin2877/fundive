@@ -3,6 +3,7 @@
 // 产物：reports/shots/<地图>_<检查点>.png（reports/ 已被 gitignore）。需要本机装有 Chrome。
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
+import { seedUnlock } from './_seed.mjs';
 
 const arg = (k, d) => (process.argv.find(a => a.startsWith(`--${k}=`)) || '').split('=')[1] || d;
 const URL = arg('url', 'http://localhost:5173/');
@@ -14,6 +15,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch({ channel: 'chrome', args: ['--use-gl=angle', '--use-angle=metal', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+await seedUnlock(ctx);
 await ctx.addInitScript((q) => localStorage.setItem('fundive.quality', q), QUALITY);
 let failed = 0;
 const gate = (ok, msg) => { console.log(`  ${ok ? '✓' : '✗'} ${msg}`); if (!ok) failed++; };
@@ -37,6 +39,8 @@ for (let m = 0; m < nMaps; m++) {
   await page.locator('.map').nth(mi).click();
   await page.click('#solo');
   await page.locator('button.primary').first().click();
+  // 计划页「装备准备」→ 装备间「按计划下水」才开潜
+  await page.locator('#go').click();
   await page.waitForFunction(() => window.__fd.session?.running, null, { timeout: 30000 });
   await page.waitForTimeout(1200);
   // 验收测的是环境渲染：AI 潜伴跟随点在镜头前 2m，深色潜水服扫进画面会吃掉半个屏幕，藏掉

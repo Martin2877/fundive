@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { buildWorld, populateWorld } from '../engine/world.js';
 import { WaterFX } from '../engine/water.js';
 import { SiltSystem } from '../engine/silt.js';
-import { makeUniverse, objectiveText } from '@fundive/shared/universe.js';
+import { makeUniverse, objectiveText, bonusProgress, diveGrade } from '@fundive/shared/universe.js';
 import { getMap, spName, endingName } from '@fundive/shared/maps.js';
 import { t as tr } from '@fundive/shared/i18n.js';
 import { universeRng, range, universeName } from '@fundive/shared/rng.js';
@@ -24,6 +24,7 @@ import { buildSurface } from '../engine/surface.js';
 import { BodyAvatar } from '../ui/avatar.js';
 import { DiveHand } from '../engine/hand.js';
 import { store } from './storage.js';
+import { guideMode } from './guide.js';
 
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
 function input_drain(input) { input.sample(); input.consumeLook(); }
@@ -55,6 +56,9 @@ export class DiveSession {
     this._evts = (this.uni.events || []).slice();
     this._shake = 0; this._shoals = []; this._thermoT = 0; this._surge = null;
     this._region = ''; this._regionT = 0;
+    // 潜导航段：uni.plan 的当前段下标；_legPos=当前段目标点（罗盘 ◆ 指它）
+    this._guide = guideMode(store.data);
+    this._legI = 0; this._legPos = null; this._legBest = Infinity; this._offT = 0;
     this._buildWorld();
     this._bindNet();
     // 触屏不建体感小人：小屏没地方放，还白养一个 WebGL 上下文
@@ -554,12 +558,13 @@ export class DiveSession {
       lp.setXYZ(1, this.smb.buoy.position.x, by - 0.7, this.smb.buoy.position.z);
       lp.needsUpdate = true;
     }
-    this.critters.update(dt, { time: this._t, lightPos: lit ? p.pos : null });
+    this.critters.update(dt, { time: this._t, lightPos: lit ? p.pos : null, playerPos: p.pos });
     this.buddy?.update(dt, this._ctx());
     this.peers.update(dt);
     const oHint = this.objective.update(dt, this._ctx());
     const sHint = this.side.update(dt, this._ctx());
     if (oHint || sHint) hud.hint(oHint || sHint);
+    this._bonusTick(dt);
     // 目标完成 -> 明确告诉玩家"怎么算结束"（按潜种说人话）
     if (this.objective.done && !this._objBriefed) {
       this._objBriefed = true;
@@ -612,11 +617,18 @@ export class DiveSession {
     if (region && region !== this._region) { this._region = region; this._regionT = 7; hud.setRegion?.(tr(region)); }
     else if (!region && this._regionT <= 0 && this._region) { this._region = ''; hud.setRegion?.(''); }
 
+    this._updateLegs(dt, p, hud);
+
     // —— 结局条件：每种死法都先有"前兆"台词，让玩家觉得死是自己的选择 ——
+    // 引导档位过滤：致死前兆（马上要出事的那种）全档位都报——那是世界的警告不是潜导的课；
+    // 建议性提醒只报给 full 档；折返气/计划深度 lite 也报；教练回声 off 关掉。
+    const gd = this._guide || 'full';
     const siltD = this.silt.densityAt(p.pos);
     const deep = p.depth() > 8;
     const W = this._warn, warnOnce = (k, t) => { if (!W[k]) { W[k] = 1; this.talk(t); } };
     const warnGate = (k, cd, t) => { if ((W[k] || 0) <= this._t) { W[k] = this._t + cd; this.talk(t); } };
+    const advise = (k, t) => { if (gd === 'full') warnOnce(k, t); };
+    const adviseGate = (k, cd, t) => { if (gd === 'full') warnGate(k, cd, t); };
     if (siltD > 0.45 && !p.onLine && deep) {
       this.siltLostT += dt;
       if (this.siltLostT > 6) warnGate('silt', 9, tr('泥沙糊住了——停手别蹬，摸{lw}。', { lw: this._lineWord }));
@@ -631,14 +643,14 @@ export class DiveSession {
     if (this._ice) {
       this.cold = Math.min(1, this.cold + dt / (this.map.ice?.cold || 420));
       if (this.cold > 0.55) p.gas = Math.max(0, p.gas - dt * 0.9);   // 发抖耗气
-      if (this.cold > 0.32) warnGate('cold1', 90, '指尖开始发麻——冰水在一刻不停地抽走体温。');
-      if (this.cold > 0.58) warnGate('cold2', 60, '手指快没知觉了，呼吸变急，耗气明显变快——该考虑回了。');
+      if (this.cold > 0.32) adviseGate('cold1', 90, '指尖开始发麻——冰水在一刻不停地抽走体温。');
+      if (this.cold > 0.58) adviseGate('cold2', 60, '手指快没知觉了，呼吸变急，耗气明显变快——该考虑回了。');
       if (this.cold > 0.84) warnGate('cold3', 25, '你在控制不住地发抖，动作都僵了。回冰洞，出水，现在。');
       if (this.cold >= 1) return this._onDeath('hypothermia');
     }
     // 氮醉三段前兆：发飘 -> 判断钝 -> 失控边缘
-    if (p.narcosis > 0.35) warnOnce('nk1', '头有点飘——氮醉的前兆。它的解药只有一种：上升。');
-    if (p.narcosis > 0.6) warnOnce('nk2', '判断在变钝。别信你现在的直觉，看着深度表慢慢回升。');
+    if (p.narcosis > 0.35) advise('nk1', '头有点飘——氮醉的前兆。它的解药只有一种：上升。');
+    if (p.narcosis > 0.6) advise('nk2', '判断在变钝。别信你现在的直觉，看着深度表慢慢回升。');
     if (p.narcosis > 0.82) warnGate('nk3', 7, '氮醉在接管你的脑子——现在就上升！');
     if (p.narcosis < 0.25) { delete W.nk1; delete W.nk2; delete W.nk3; }
     if (p.narcosis > 0.82) {
@@ -649,8 +661,8 @@ export class DiveSession {
       if (this.narcoT > 35) return this._onDeath('narcosis');
     } else this.narcoT = 0;
     // 氧中毒：确定性的深度暴露计时（越深耗得越快），不是每帧抽奖
-    if (p.depth() > 45) warnOnce('deep45', '四十米以下，每一米都在收利息——找到目标，拿了就走。');
-    if (p.depth() > 50) warnOnce('tox', '氧分压报警——吸着空气到这个深度，抽搐随时会先来。');
+    if (p.depth() > 45) advise('deep45', '四十米以下，每一米都在收利息——找到目标，拿了就走。');
+    if (p.depth() > 50) advise('tox', '氧分压报警——吸着空气到这个深度，抽搐随时会先来。');
     if (p.depth() > 65) {
       this.toxT += dt * (p.depth() - 62) / 12;
       if (this.toxT > 10) warnGate('tox2', 8, '嘴唇开始发麻——氧中毒在敲门，快离开这个深度。');
@@ -658,12 +670,12 @@ export class DiveSession {
     } else this.toxT = Math.max(0, this.toxT - dt * 0.4);
     // 上升超速 / 减压债 / 卡缝 / 气量：全部先警告再判死
     if (p._wildAsc > 0.8) warnGate('wild', 3, '你在往水面上飞——肺要炸了，稳住！');
-    else if (p._fastAsc > 0.6) warnGate('asc', 6, '升太快——减压债在涨，出水前得在浅水还清。');
+    else if (p._fastAsc > 0.6) adviseGate('asc', 6, '升太快——减压债在涨，出水前得在浅水还清。');
     if (p.decoOwed > 5 && p.depth() < 8) warnGate('deco', 12, '电脑表在叫：你欠着减压停留，回 5 米停够再走。');
     if (p.wedged) warnGate('stuck', 5, '卡住了——别再顶，收手收腿，慢慢往后退。');
-    else if (p.inCrack) warnGate('crack', 14, '窄缝——侧身慢过。感觉顶住就先退出来，别硬挤。');
+    else if (p.inCrack) adviseGate('crack', 14, '窄缝——侧身慢过。感觉顶住就先退出来，别硬挤。');
     // —— 教练回声：上过的课在水里变成肌肉记忆；没上过的，提示回去补课 ——
-    if (!this.lesson) {
+    if (!this.lesson && gd !== 'off') {
       if (!this._echo) this._echo = new Set();
       const echo = (k, txt) => { if (!this._echo.has(k)) { this._echo.add(k); this.talk(txt); } };
       const trained = (cid, lid) => (store.data.courses?.[cid]?.[lid]?.stars || 0) > 0;
@@ -676,12 +688,14 @@ export class DiveSession {
       if (p.inCurrent) echo('flow', '水流在推你——别硬顶，顺流或者按 G 挂钩稳住。');
       if (p.inAir && !p.domeBad) echo('pocket', '气室里摘二级头前想一想：有的气室，气是不能呼吸的。');
     }
-    if (p.gas < (this.o.plan?.turnGas || 140)) warnOnce('gas2', '到折返气压了——按计划该回头了。');
-    if (this.o.plan?.planDepth && p.depth() > this.o.plan.planDepth + 2) warnOnce('overplan', '已经超过计划深度了——按计划，该回头了。');
+    if (gd !== 'off') {
+      if (p.gas < (this.o.plan?.turnGas || 140)) warnOnce('gas2', '到折返气压了——按计划该回头了。');
+      if (this.o.plan?.planDepth && p.depth() > this.o.plan.planDepth + 2) warnOnce('overplan', '已经超过计划深度了——按计划，该回头了。');
+    }
     // —— 气室 / 支洞 ——
     if (p.inAir) {
       if (p.domeBad) warnGate('dome_bad', 12, '头出了水面，但空气发闷、刺鼻——别摘二级头，这里的气不能呼吸。');
-      else warnOnce('dome', '头出水面了——是个气室。可以摘掉二级头喘口气，省气，也让心率降下来。');
+      else advise('dome', '头出水面了——是个气室。可以摘掉二级头喘口气，省气，也让心率降下来。');
       if (!p.domeBad && p.gas < 60) {
         this._rescueT += dt;
         if (this._rescueT > 25) { this.talk(tr('水下亮起了灯——搜救队顺着你留的{lw}找到了气室。', { lw: this._lineWord })); return this._finish('rescued'); }
@@ -712,6 +726,20 @@ export class DiveSession {
     if (this._pendingEnd) {
       this._pendingEnd.t -= dt;
       if (this._pendingEnd.t <= 0) { const e = this._pendingEnd.ending; this._pendingEnd = null; return this._finish(e); }
+    }
+    if (this._gasp) {
+      const g = this._gasp;
+      g.t -= dt;
+      if (this.surfaced) { this._gasp = null; p.gasping = false; }
+      else if (this.buddy && !this.buddy.lost && this.buddy.obj.position.distanceTo(p.pos) < 5) {
+        p.gas = 20; p.gasping = false; this._gasp = null;
+        this.talk('一只手把备用二级头塞进你嘴里——潜伴在最后一刻赶到了。');
+      } else if (g.t <= 0) {
+        this._gasp = null; p.gasping = false;
+        const id = p.lineDist > 20 && p.depth() > 10 ? 'missing' : g.ending;
+        p.dead = id; this.emit('died', { ending: id });
+        return this._finish(id);
+      } else if (Math.ceil(g.t) !== g._s) { g._s = Math.ceil(g.t); if (g._s <= 4) this.o.hud.hint(tr('吸不动了——{n}', { n: g._s }), 1); }
     }
     if (p.gas < 45) warnOnce('gas1', '气表进红区了——现在每一口都要省着吸。');
     if (p.gas < 25) warnGate('gas0', 8, '最后一点气了——升水，或者找到人共用气源。');
@@ -830,15 +858,15 @@ export class DiveSession {
     hud.update(p, {
       turnGas: this.o.plan?.turnGas || 140,
       planDepth: this.o.plan?.planDepth || 0,
-      objectiveText: this.objective.done
+      objectiveText: (this.objective.done
         ? (this._ocean ? tr('✓ 目标完成 —— 回潜水船浮出水面') : this._ice ? tr('✓ 目标完成 —— 回冰洞出水') : this.objective.statusText(this.uni))
           + ((this._ocean || this._ice) && !this.map.navReq ? ` <b>· ${Math.round(p.pos.distanceTo(this.cave.entryPos))}m</b>` : '')
         : this.objective.statusText(this.uni)
-          + (this.cave.objectiveSpot && !this.map.navReq ? ` <b>· ${Math.round(p.pos.distanceTo(this.cave.objectiveSpot.pos))}m</b>` : ''),
+          + (this.cave.objectiveSpot && !this.map.navReq ? ` <b>· ${Math.round(p.pos.distanceTo(this.cave.objectiveSpot.pos))}m</b>` : '')) + this._bonusText(),
       // 指北针：朝向带 + ◆ 指向出口(目标完成后)或目标点。navReq 的图这是唯一导航。
       compass: p.compass ? {
         h: ((-p.yaw * 180 / Math.PI) % 360 + 360) % 360,
-        wp: (() => { const tp = this.trainer?.compassTarget?.() || (this.objective.done ? this.cave.entryPos : this.cave.objectiveSpot?.pos || this.cave.entryPos);
+        wp: (() => { const tp = this.trainer?.compassTarget?.() || this._legPos || (this.objective.done ? this.cave.entryPos : this.cave.objectiveSpot?.pos || this.cave.entryPos);
           return Math.atan2(tp.x - p.pos.x, -(tp.z - p.pos.z)) * 180 / Math.PI; })(),
       } : null,
       manualBreath: manual,
@@ -998,6 +1026,13 @@ export class DiveSession {
       this.talk('黑暗里一只手把备用二级头塞进你嘴里——潜伴还在。');
       return;
     }
+    // 最后一口气：气瓶见底不是立刻出局——给一小段"拼命上升/找潜伴"的窗口
+    if (id === 'out_of_air' && !this._gasp) {
+      this._gasp = { t: 9, ending: id };
+      this.player.gasping = true; this.player.dead = null;
+      this.talk('吸不动了——气瓶空了！往上冲，或者找潜伴共用气源！', 6);
+      return;
+    }
     // 深度失联 => 失踪而非气尽
     if (id === 'out_of_air' && this.player.lineDist > 20 && this.player.depth() > 10) id = 'missing';
     this.player.dead = id;
@@ -1060,13 +1095,90 @@ export class DiveSession {
   }
   abort() { this._finish('survived_rough', true); }
 
+  _bonusState() {
+    const p = this.player;
+    return { shots: this.o.photos.shots, maxDepth: p.maxDepth, gas: p.gas, stir: p.stirScore, panicMax: p.panicMax || 0, branches: this.found.size };
+  }
+
+  // 附加挑战：非 final 项一达成就播报；final 项只在出水时结算
+  _bonusTick(dt) {
+    const list = this.lesson ? [] : (this.uni.bonus || []);
+    if (!list.length) return;
+    this._bonusT = (this._bonusT || 0) - dt;
+    if (this._bonusT > 0) return;
+    this._bonusT = 1;
+    const done = (this._bonusDone = this._bonusDone || new Set());
+    const st = this._bonusState();
+    list.forEach((b, i) => {
+      const r = bonusProgress(b, st);
+      if (!r.final && r.ok && !done.has(i)) { done.add(i); this.talk(tr('✦ 附加挑战达成：{n}', { n: r.text }), 4); this.o.audio?.ok?.(); }
+    });
+  }
+
+  // —— 潜导航段：uni.plan 计划动线。HUD 航段行 + 罗盘 ◆ 指当前站；到点自动推进 ——
+  _updateLegs(dt, p, hud) {
+    // 潜导档位可能刚在暂停菜单被改过——低频刷新
+    this._guideT = (this._guideT || 0) - dt;
+    if (this._guideT <= 0) { this._guideT = 1; this._guide = guideMode(store.data); }
+    const plan = this.uni.plan || [];
+    if (this.lesson || !plan.length || this.ended) { this._legPos = null; hud.setLeg?.(null); return; }
+    const posOf = (l) => l.kind === 'exit' ? this.cave.entryPos
+      : l.kind === 'obj' ? (this.cave.objectiveSpot?.pos || this.cave.nodes[l.node]?.pos)
+      : this.cave.nodes[l.node]?.pos;
+    const exitName = this._ocean ? tr('潜水船') : this._ice ? tr('冰洞') : tr('出口');
+    const nameOf = (l) => l.kind === 'exit' ? exitName : l.kind === 'obj' ? tr('目标点') : tr(this.cave.nodes[l.node]?.name || '下一站');
+    // 推进：leg 到点（进入节点半径）/ obj 完成 / exit 交给结局系统不推进
+    while (this._legI < plan.length) {
+      const l = plan[this._legI], pos = posOf(l);
+      const arrive = l.kind === 'obj' ? this.objective.done
+        : l.kind === 'exit' ? false
+        : pos && p.pos.distanceTo(pos) < Math.max(6, (this.cave.nodes[l.node]?.r || 3) + 2.5);
+      if (!arrive) break;
+      this._legI++;
+      this._legBest = Infinity; this._offT = 0;
+      // 只在途经站播报：obj/exit 段的进退由目标系统自己讲
+      if (l.kind === 'leg' && this._legI < plan.length && this._guide !== 'off') {
+        const next = nameOf(plan[this._legI]);
+        if (this._guide === 'full') this.talk(tr('潜导：{n}到了。下一站 {m}——跟着{lw}。', { n: nameOf(l), m: next, lw: this._lineWord }), 3.6);
+        else hud.hint?.(tr('◆ 下一站 {n}', { n: next }));
+      }
+    }
+    const leg = plan[this._legI];
+    if (!leg) { this._legPos = null; hud.setLeg?.(null); return; }
+    const pos = posOf(leg);
+    this._legPos = pos;
+    // 航段行：只显「途经站」——目标点/出口的距离目标行里已有，不重复
+    if (this._guide !== 'off' && leg.kind === 'leg' && pos) {
+      hud.setLeg?.(tr('◆ {n} · {d}m', { n: nameOf(leg), d: Math.round(p.pos.distanceTo(pos)) }));
+    } else hud.setLeg?.(null);
+    // 偏航补救：30 秒没有更接近当前途经站，潜导喊一声（学员档限定——老手偏航是有意的）
+    if (leg.kind === 'leg' && pos && this._guide === 'full') {
+      const d = p.pos.distanceTo(pos);
+      if (d < this._legBest - 2) { this._legBest = d; this._offT = 0; } else this._offT += dt;
+      if (this._offT > 30) {
+        this._offT = -45;
+        this.talk(tr('潜导：好像偏了——回{lw}边，跟着罗盘 ◆ 去「{n}」。', { lw: this._lineWord, n: nameOf(leg) }));
+      }
+    }
+  }
+
+  _bonusText() {
+    const list = this.lesson ? [] : (this.uni.bonus || []);
+    if (!list.length) return '';
+    const st = this._bonusState();
+    return '<br>' + list.map(b => { const r = bonusProgress(b, st); return `<span style="opacity:.85;font-size:.82em">${r.ok && !r.final ? '✦' : '◦'} ${r.text} <b>${r.prog}</b></span>`; }).join('<br>');
+  }
+
   _finish(ending, aborted = false) {
     if (this.ended) return;
     this.ended = true;
     this.running = false;
     const p = this.player;
+    const goodEnd = ['survived', 'survived_rough', 'rescued', 'alt_exit', 'climbed_out', 'rescue_call', 'boat_pickup'].includes(ending) && !aborted;
+    const bst = this._bonusState();
+    const bonus = this.lesson ? [] : (this.uni.bonus || []).map(b => { const r = bonusProgress(b, bst); return { text: r.text, prog: r.prog, ok: goodEnd && r.ok }; });
     const result = {
-      ending, aborted,
+      ending, aborted, bonus, bonusDone: bonus.filter(b => b.ok).length,
       mapId: this.map.id, seed: this.o.seed, universe: universeName(this.o.seed),
       objectiveDone: this.objective.done,
       objectiveType: this.uni.objective.type,
@@ -1080,6 +1192,8 @@ export class DiveSession {
       shots: this.o.photos.shots.slice(-8),
       replay: { mapId: this.map.id, nodes: this.cave.nodes.map(n => ({ x: n.pos.x, z: n.pos.z, name: n.name })), track: this.track, events: this.events, turnGas: this.o.plan?.turnGas || 140, planDepth: this.o.plan?.planDepth || 0 },
     };
+    result.unranked = !!this.o.plan?.unranked;
+    result.grade = (this.lesson || result.unranked) ? null : diveGrade(result, goodEnd);
     document.getElementById('narco').style.opacity = 0;
     this.o.photos.close();
     this.o.hud.hide();

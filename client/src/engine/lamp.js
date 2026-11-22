@@ -26,7 +26,7 @@ export class DiverLamp {
   constructor(scene) {
     this.scene = scene;
     const sh = quality.cfg.shadows;
-    this.spot = new THREE.SpotLight(0xfff0d4, 95, 40, 0.55, 0.65, 1.6);
+    this.spot = new THREE.SpotLight(0xfff0d4, 58, 40, 0.55, 0.68, 1.15);
     if (sh) {
       this.spot.castShadow = true;
       this.spot.shadow.mapSize.set(sh, sh);
@@ -36,8 +36,8 @@ export class DiverLamp {
     }
     this.target = new THREE.Object3D();
     this.spot.target = this.target;
-    this.spill = new THREE.SpotLight(0xe8f4ee, 16, 26, 1.1, 1.0, 1.4);
-    this.fill = new THREE.PointLight(0xcfeee8, 2.0, 8, 1.6);
+    this.spill = new THREE.SpotLight(0xe8f4ee, 11, 26, 1.1, 1.0, 1.1);
+    this.fill = new THREE.PointLight(0xcfeee8, 1.4, 8, 1.4);
     this.cone = new THREE.Mesh(new THREE.ConeGeometry(2.6, 9, 24, 1, true), new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Color(1.0, 0.93, 0.8) }, uK: { value: 0.1 } },
       vertexShader: CONE_V, fragmentShader: CONE_F,
@@ -57,11 +57,11 @@ export class DiverLamp {
     this.pos.copy(cam.position).add(_off);
     this.spot.position.copy(this.pos);
     this.target.position.copy(this.pos).addScaledVector(this.dir, 12);
-    this.spot.intensity = on ? 95 * power * flicker : 0;
+    this.spot.intensity = on ? 58 * power * flicker : 0;
     this.spill.position.copy(this.pos);
-    this.spill.intensity = on ? 16 * power * flicker : 0;
+    this.spill.intensity = on ? 11 * power * flicker : 0;
     this.fill.position.copy(cam.position);
-    this.fill.intensity = on ? 1.2 * power : 0.12;
+    this.fill.intensity = on ? 0.9 * power : 0.12;
     this.cone.visible = on && !volumetric;
     this.cone.position.copy(this.pos).addScaledVector(this.dir, 4.5);
     this.cone.quaternion.setFromUnitVectors(_down, this.dir);

@@ -32,7 +32,7 @@ begin
     'unknown');
 end $$;
 
--- 综合分：潜水×2 + 图鉴种数×10 + 章节×15 + 课程星×3
+-- 综合分：潜水×2 + 图鉴种数×10 + 章节×15 + 课程星×3 + 评级加成（S4/A2/B1，与前端 scoreOf 同式）
 create or replace function public.fd_score(d jsonb) returns int
 language sql immutable as $$
   select
@@ -46,6 +46,10 @@ language sql immutable as $$
         from jsonb_each(case when jsonb_typeof(d->'courses') = 'object' then d->'courses' else '{}'::jsonb end) c,
              jsonb_each(case when jsonb_typeof(c.value) = 'object' then c.value else '{}'::jsonb end) l
       ), 0) * 3
+    + coalesce((
+        select sum(case ch.value->>'grade' when 'S' then 4 when 'A' then 2 when 'B' then 1 else 0 end)::int
+        from jsonb_each(case when jsonb_typeof(d->'chapters') = 'object' then d->'chapters' else '{}'::jsonb end) ch
+      ), 0)
 $$;
 
 -- 认领/同步：新建或更新本 IP 的档案。p_name/p_data 传 null = 只读不更新对应字段。

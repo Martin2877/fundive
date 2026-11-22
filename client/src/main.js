@@ -17,6 +17,7 @@ import { TrainingSession } from './game/training.js';
 import { getCourse, getLesson } from '@fundive/shared/courses.js';
 import { randomSeed } from '@fundive/shared/rng.js';
 import { store } from './game/storage.js';
+import { mapLocked } from './game/guide.js';
 import { MSG } from '@fundive/shared/protocol.js';
 import { buildWorld } from './engine/world.js';
 import { DiverLamp } from './engine/lamp.js';
@@ -235,6 +236,8 @@ function plan(mapId, seed, multiplayer, netPlayers = []) {
         const w = whimLoadout(getMap(mapId), seed);
         pl = { ...pl, turnGas: 70, planDepth: 0, loadout: w.gear, notes: w.notes };
       }
+      // 未解锁的高难图：硬闯可以，本次不计评级
+      if (mapLocked(getMap(mapId), store.data)) (pl = pl || {}).unranked = true;
       startDive({ mapId, seed, plan: pl, solo: !multiplayer, netPlayers });
     },
     onBack: menu,
@@ -282,13 +285,14 @@ function startDive({ mapId, seed, plan: pl, solo, netPlayers }) {
 function finish(result) {
   store.addEnding(result.ending);
   result.chapterDone = ['survived', 'survived_rough', 'rescued'].includes(result.ending) && result.objectiveDone && !!STORY[result.mapId];
-  if (result.chapterDone) store.addChapter(result.mapId, result.ending);
+  if (result.chapterDone) store.addChapter(result.mapId, result.ending, result.grade);
   store.addDive({
     dives: (store.data.stats?.dives || 0) + 1,
     deaths: (store.data.stats?.deaths || 0) + (['survived', 'survived_rough', 'rescued'].includes(result.ending) ? 0 : 1),
     photos: (store.data.stats?.photos || 0) + result.stats.photos,
     rescued: (store.data.stats?.rescued || 0) + (result.objectiveDone && result.objectiveType === 'rescue' ? 1 : 0),
     salvage: (store.data.stats?.salvage || 0) + (result.objectiveDone && result.objectiveType === 'salvage' ? 1 : 0),
+    bonus: (store.data.stats?.bonus || 0) + (result.bonusDone || 0),
     universe: result.seed,
   });
   store.addReplay(result);   // 复盘回放存档（账号上云时会带它）

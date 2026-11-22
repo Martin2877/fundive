@@ -58,7 +58,7 @@ float caustic(vec2 p, float t) {
     c += min(1.0 / max(length(q), 1e-4), 1e3);   // 除零防爆 Inf——一个 Inf 像素经 bloom 模糊会吞掉整帧
   }
   c /= 4.0; c = 1.17 - pow(min(c, 40.0), 1.4);
-  float r = clamp(pow(abs(c), 8.0), 0.0, 1.2);
+  float r = clamp(pow(abs(c), 8.0), 0.0, 0.85);
   return r == r ? r : 0.0;   // NaN 保险：漏出去一个 NaN，bloom 会把整帧拉黑
 }
 vec3 tpN(sampler2D t, vec3 p, vec3 w, vec3 n, float sc, float k){
@@ -114,7 +114,7 @@ export function makeCaveMaterial({ sand = 1, normalK = 1.0, roughness = 1.0, env
           }
           if (sk > 0.002) {
             float cs = caustic(vec2(vWPos.x + vWPos.y * 0.7, vWPos.z + vWPos.y * 0.3) * 0.85, uCT * 0.55);
-            totalEmissiveRadiance += uCCol * cs * sk * (0.25 + 0.75 * max(0.0, tpn.y)) * 0.55;
+            totalEmissiveRadiance += uCCol * cs * sk * (0.25 + 0.75 * max(0.0, tpn.y)) * 0.34;
           }
         }`)
       .replace('#include <roughnessmap_fragment>', `

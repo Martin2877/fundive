@@ -1,12 +1,15 @@
 // 出水流程探针：下水 -> 传送到出口 -> 等出水动画 -> 截水面场景
 import { chromium } from 'playwright-core';
+import { seedUnlock } from './_seed.mjs';
 import fs from 'node:fs';
 const URL = process.argv.find(a => a.startsWith('--url='))?.split('=')[1] || 'http://localhost:5173/';
 const MAPIDX = +(process.argv.find(a => a.startsWith('--map='))?.split('=')[1] || 0);
 const KIND = process.argv.find(a => a.startsWith('--kind='))?.split('=')[1] || 'cave';
 fs.mkdirSync('reports/shots', { recursive: true });
 const browser = await chromium.launch({ channel: 'chrome', args: ['--use-gl=angle', '--use-angle=metal', '--ignore-gpu-blocklist'] });
-const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+await seedUnlock(ctx);
+const page = await ctx.newPage();
 page.on('pageerror', e => console.log('PAGEERROR', e.message));
 page.on('console', c => { if (c.type() === 'error') console.log('CONSOLE', c.text().slice(0, 160)); });
 await page.goto(URL);

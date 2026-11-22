@@ -23,16 +23,24 @@ class Patrol {
     this.obj.rotation.y = Math.atan2(-vz, vx);
   }
   update(dt, ctx) {
-    this.t += dt; this.a += this.w * dt * this.dir;
-    // 避光/避人：灯光扫到或人贴太近时，巡游中心悄悄平移开——大生物不理你，但也不陪你
-    const lp = ctx?.lightPos;
-    if (this.avoidR && lp) {
-      const d = Math.hypot(this.c.x - lp.x, this.c.z - lp.z);
-      if (d < this.avoidR) {
-        _pv.set(this.c.x - lp.x, 0, this.c.z - lp.z).normalize().multiplyScalar(dt * 2.2);
-        this.c.add(_pv);
-      } else this.c.lerp(this.home, Math.min(1, dt * 0.12));
+    let spMul = 1;
+    const pp = ctx?.playerPos || ctx?.lightPos;
+    if (pp) {
+      const dist = this.obj.position.distanceTo(pp);
+      if (this.avoidR && dist < this.avoidR) {
+        spMul = 1.35;
+        _pv.set(this.c.x - pp.x, 0, this.c.z - pp.z);
+        if (_pv.lengthSq() > 1e-4) this.c.add(_pv.normalize().multiplyScalar(dt * 2.5));
+      } else if (dist < 4.2) {
+        // 温柔巨兽靠近时不惊慌，而是优雅地略微偏让，避免穿模贴脸
+        _pv.set(this.c.x - pp.x, 0, this.c.z - pp.z);
+        if (_pv.lengthSq() > 1e-4) this.c.add(_pv.normalize().multiplyScalar(dt * 1.1));
+      } else {
+        this.c.lerp(this.home, Math.min(1, dt * 0.12));
+      }
     }
+    this.t += dt * spMul;
+    this.a += this.w * dt * this.dir * spMul;
     this._place(); this.flap?.(this.t);
   }
 }
@@ -50,7 +58,7 @@ function makeTurtle() {
   };
   flip(0.22, 0.32, 0.5, 0.2); flip(0.22, -0.32, 0.5, 0.2); flip(-0.32, 0.22, 0.22, 0.14); flip(-0.32, -0.22, 0.22, 0.14);
   g.userData.flap = (t) => fl.forEach(([p, s], i) => { p.rotation.x = -s * Math.sin(t * 1.6 + (i > 1 ? 1.5 : 0)) * (i > 1 ? 0.25 : 0.55); });
-  g.scale.setScalar(1.5);
+  g.scale.setScalar(1.75);
   return g;
 }
 
@@ -197,6 +205,161 @@ function makeBell() {
   return g;
 }
 
+function makeHammerhead(rng) {
+  const o = makeFish('shark', rng);
+  const hm = M(0x6d7980, { roughness: 0.55 });
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.045, 0.42), hm);
+  bar.position.set(0.47, 0.01, 0);
+  o.add(bar);
+  const em = M(0x101214, { roughness: 0.3 });
+  for (const s of [-1, 1]) {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.016, 6, 5), em);
+    e.position.set(0.49, 0.01, s * 0.21);
+    o.add(e);
+  }
+  o.scale.setScalar(2.8);
+  return o;
+}
+
+function makeWhaleShark(rng) {
+  const o = makeFish('shark', rng);
+  o.traverse(m => {
+    const mt = m.material;
+    if (mt?.isMeshStandardMaterial && mt.color.getHex() !== 0xd6dcd8 && mt.color.getHex() !== 0x101214) {
+      mt.color.setHex(0x2d4860);
+    }
+  });
+  const spotM = M(0xdce6ea, { roughness: 0.65 });
+  for (let i = 0; i < 24; i++) {
+    const sp = new THREE.Mesh(new THREE.SphereGeometry(0.013, 5, 4), spotM);
+    const u = ((i * 37) % 100) / 100 * 0.65 - 0.3;
+    const z = ((i % 5) - 2) * 0.032;
+    sp.position.set(u, 0.058 - Math.abs(z) * 0.4, z);
+    sp.scale.y = 0.35;
+    o.add(sp);
+  }
+  o.scale.setScalar(6.2);
+  return o;
+}
+
+function makeWhale() {
+  const g = new THREE.Group();
+  const dark = M(0x283440, { roughness: 0.65 });
+  const bellyM = M(0xc8d4dc, { roughness: 0.7 });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.45, 18, 12), dark);
+  body.scale.set(1.75, 0.48, 0.46);
+  g.add(body);
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), bellyM);
+  belly.scale.set(1.65, 0.32, 0.42); belly.position.y = -0.075;
+  g.add(belly);
+  // 背脊瘤突与小背鳍
+  const hump = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.14, 6), dark);
+  hump.position.set(-0.22, 0.22, 0); hump.rotation.z = 0.35;
+  g.add(hump);
+  // 标志性超长翼状白腹胸鳍
+  const pecs = [];
+  for (const s of [-1, 1]) {
+    const pv = new THREE.Group(); pv.position.set(0.18, -0.05, s * 0.16);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.025, 0.68), bellyM);
+    fin.position.set(-0.08, 0, s * 0.32); fin.rotation.y = s * -0.35;
+    pv.add(fin); g.add(pv); pecs.push([pv, s]);
+  }
+  // 水平尾柄与宽大尾叶（上下拍打）
+  const tailG = new THREE.Group(); tailG.position.set(-0.74, 0.01, 0);
+  const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.11, 0.32, 8), dark);
+  stalk.rotation.z = Math.PI / 2; stalk.position.x = -0.14; tailG.add(stalk);
+  const fluke = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.028, 0.64), dark);
+  fluke.position.x = -0.28; tailG.add(fluke);
+  g.add(tailG);
+  g.userData.flap = (t) => {
+    tailG.rotation.z = Math.sin(t * 0.9) * 0.26;
+    pecs.forEach(([p, s]) => { p.rotation.x = s * Math.sin(t * 0.7) * 0.12; });
+  };
+  g.scale.setScalar(7.5);
+  return g;
+}
+
+function makeManta() {
+  const g = new THREE.Group();
+  const top = M(0x1c2632, { side: THREE.DoubleSide, roughness: 0.6 });
+  const bellyM = M(0xe0e4e6);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 8), top); body.scale.set(1.2, 0.24, 0.72); g.add(body);
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.29, 10, 7), bellyM); belly.scale.set(1.15, 0.16, 0.66); belly.position.y = -0.04; g.add(belly);
+  for (const s of [-1, 1]) {
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.28, 6), top);
+    horn.rotation.z = -Math.PI / 2; horn.rotation.y = s * 0.18; horn.position.set(0.42, -0.01, s * 0.14); g.add(horn);
+  }
+  const wings = [];
+  const wingGeo = (s) => {
+    const pts = [
+      0.32, 0, 0,   0.06, 0.02, s * 0.85,  -0.28, 0, 0,
+      0.06, 0.02, s * 0.85, -0.18, -0.01, s * 1.38, -0.28, 0, 0,
+    ];
+    const gm = new THREE.BufferGeometry();
+    gm.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    gm.computeVertexNormals();
+    return gm;
+  };
+  for (const s of [-1, 1]) {
+    const pivot = new THREE.Group(); pivot.position.set(0.02, 0, s * 0.18);
+    pivot.add(new THREE.Mesh(wingGeo(s), top)); g.add(pivot); wings.push([pivot, s]);
+  }
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.004, 1.1, 4), top);
+  tail.rotation.z = Math.PI / 2; tail.position.x = -0.85; g.add(tail);
+  g.userData.flap = (t) => wings.forEach(([p, s], i) => { p.rotation.x = -s * Math.sin(t * 1.1 + i * 0.25) * 0.38; });
+  g.scale.setScalar(3.6);
+  return g;
+}
+
+function makeIguana() {
+  const g = new THREE.Group();
+  const mat = M(0x363b34, { roughness: 0.85 });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.34, 4, 8), mat);
+  body.rotation.z = Math.PI / 2; body.position.y = 0.09; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), mat);
+  head.scale.set(1.2, 0.9, 0.95); head.position.set(0.26, 0.12, 0); g.add(head);
+  for (let i = 0; i < 7; i++) {
+    const sp = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.06, 4), M(0x4b5248));
+    sp.position.set(0.18 - i * 0.06, 0.17, 0); g.add(sp);
+  }
+  for (const [x, z] of [[0.14, 0.1], [0.14, -0.1], [-0.12, 0.1], [-0.12, -0.1]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, 0.05), mat);
+    leg.position.set(x, 0.05, z); leg.rotation.x = Math.sign(z) * 0.35; g.add(leg);
+  }
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.55, 5), mat);
+  tail.rotation.z = Math.PI / 2; tail.position.set(-0.45, 0.07, 0); g.add(tail);
+  g.userData.tail = tail;
+  g.scale.setScalar(1.4);
+  return g;
+}
+
+class Tornado {
+  constructor(items, center, rng) {
+    this.items = items;
+    this.c = center.clone();
+    this.t = rng() * 10;
+    this.dir = rng() < 0.5 ? 1 : -1;
+    this.expand = 0;
+  }
+  update(dt, ctx) {
+    this.t += dt;
+    const pp = ctx?.playerPos;
+    const targetExp = pp && Math.hypot(pp.x - this.c.x, pp.z - this.c.z) < 5.5 && Math.abs(pp.y - this.c.y) < 6 ? 1.8 : 0;
+    this.expand += (targetExp - this.expand) * Math.min(1, dt * 2.5);
+    for (const it of this.items) {
+      const a = it.a0 + this.t * it.w * this.dir;
+      const rad = it.r + this.expand;
+      const x = this.c.x + Math.cos(a) * rad;
+      const z = this.c.z + Math.sin(a) * rad;
+      const y = this.c.y + it.dy + Math.sin(this.t * 1.1 + it.ph) * 0.45;
+      it.obj.position.set(x, y, z);
+      const vx = -Math.sin(a) * this.dir, vz = Math.cos(a) * this.dir;
+      it.obj.rotation.y = Math.atan2(-vz, vx);
+      if (it.obj.userData.tail) it.obj.userData.tail.rotation.y = Math.sin(this.t * 8 + it.ph) * 0.45;
+    }
+  }
+}
+
 export function populateOcean(scene, ocean, map, uni) {
   const rng = universeRng(map.id, `${uni.seed}::marine`);
   const entities = [], photoables = [];
@@ -210,7 +373,7 @@ export function populateOcean(scene, ocean, map, uni) {
     if (mt.opacity >= 0.9) { mt.transparent = false; mt.opacity = 1; }
   });
   // 封闭舱内不放自由游动的生物——它们不做碰撞，会穿墙
-  const INSIDE_BLOCK = new Set(['damselfish', 'parrotfish', 'clownfish', 'shark', 'ray', 'turtle', 'jellyfish']);
+  const INSIDE_BLOCK = new Set(['damselfish', 'parrotfish', 'clownfish', 'shark', 'ray', 'turtle', 'jellyfish', 'barracuda', 'napoleon', 'hammerhead', 'whaleshark', 'whale', 'manta', 'iguana']);
   // 出生点若落进碰撞体（墙/箱），沿最小穿透轴推出去
   const eject = (p, pad) => {
     for (const b of ocean.boxes || []) {
@@ -237,7 +400,65 @@ export function populateOcean(scene, ocean, map, uni) {
         }
         return;
       }
-      case 'shark': { const o = makeFish('shark', rng); dull(o); o.scale.setScalar(2.1); addEnt(sp, new Patrol(o, eject(P.clone(), 6), range(rng, 14, 20), 1.5, 2.5, (t) => { o.userData.tail.rotation.y = Math.sin(t * 3) * 0.45; }, rng, 8), 3); return; }
+      case 'shark': { const o = makeFish('shark', rng); dull(o); o.scale.setScalar(2.9); addEnt(sp, new Patrol(o, eject(P.clone(), 6), range(rng, 14, 22), 1.6, 2.5, (t) => { o.userData.tail.rotation.y = Math.sin(t * 3) * 0.45; }, rng, 7), 3.4); return; }
+      case 'barracuda': {
+        const isTornado = node.feats?.includes('tornado');
+        const n = isTornado ? 22 : intRange(rng, 5, 8);
+        const c = eject(P.clone(), 6);
+        const items = [];
+        for (let i = 0; i < n; i++) {
+          const o = makeFish('barracuda', rng); dull(o); o.scale.setScalar(1.35);
+          scene.add(o);
+          if (i < 6) photoables.push({ sp, obj: o, r: 1.3 });
+          items.push({ obj: o, a0: (i / n) * 6.28 + range(rng, -0.3, 0.3), r: isTornado ? range(rng, 3.8, 7.2) : range(rng, 2.5, 5), dy: isTornado ? range(rng, -3.5, 5.0) : range(rng, -1.2, 1.5), w: range(rng, 0.35, 0.55), ph: rng() * 6 });
+        }
+        entities.push(new Tornado(items, c, rng));
+        return;
+      }
+      case 'napoleon': {
+        const f = new Fish('napoleon', { pos: eject(P.clone(), 4), r: 5 }, rng);
+        dull(f.obj);
+        addEnt(sp, f, 1.8);
+        return;
+      }
+      case 'hammerhead': {
+        const n = node.feats?.includes('tornado') ? 6 : 2;
+        const c = eject(P.clone(), 7);
+        for (let i = 0; i < n; i++) {
+          const o = makeHammerhead(rng); dull(o);
+          const off = new THREE.Vector3(range(rng, -4, 4), range(rng, -2, 3), range(rng, -4, 4));
+          addEnt(sp, new Patrol(o, c.clone().add(off), range(rng, 14, 22), 1.6, 2.2, (t) => { o.userData.tail.rotation.y = Math.sin(t * 3.2) * 0.45; }, rng, 7), 3);
+        }
+        return;
+      }
+      case 'whaleshark': {
+        const o = makeWhaleShark(rng); dull(o);
+        addEnt(sp, new Patrol(o, eject(P.clone().add(new THREE.Vector3(0, 2.5, 0)), 10), range(rng, 18, 26), 1.2, 2.0, (t) => { o.userData.tail.rotation.y = Math.sin(t * 1.6) * 0.32; }, rng, 0), 7.5);
+        return;
+      }
+      case 'whale': {
+        const o = makeWhale(); dull(o);
+        const pos = eject(P.clone().add(new THREE.Vector3(0, 5.0, 0)), 12);
+        pos.y = Math.min(-6.5, pos.y);
+        addEnt(sp, new Patrol(o, pos, range(rng, 24, 34), 1.4, 3.0, o.userData.flap, rng, 0), 10.0);
+        return;
+      }
+      case 'manta': {
+        const n = intRange(rng, 1, 2);
+        for (let i = 0; i < n; i++) {
+          const o = makeManta();
+          addEnt(sp, new Patrol(o, eject(P.clone().add(new THREE.Vector3(range(rng, -3, 3), 1.5, range(rng, -3, 3))), 7), range(rng, 14, 22), 1.3, 2.2, o.userData.flap, rng, 0), 3.6);
+        }
+        return;
+      }
+      case 'iguana': {
+        for (let i = 0; i < 2; i++) {
+          const o = makeIguana(); dull(o);
+          place(o, ground(3));
+          addEnt(sp, { obj: o, update(dt, c) { o.userData.tail.rotation.y = Math.sin(c.time * 1.5 + i) * 0.14; } }, 1.1);
+        }
+        return;
+      }
       case 'ray': { const o = makeRay(); addEnt(sp, new Patrol(o, eject(P.clone(), 6), range(rng, 12, 18), 1.2, 1.8, o.userData.flap, rng, 5), 2.5); return; }
       case 'turtle': { const o = makeTurtle(); dull(o); addEnt(sp, new Patrol(o, eject(P.clone().add(new THREE.Vector3(0, 1, 0)), 4), range(rng, 9, 14), 0.8, 1.2, o.userData.flap, rng, 3.5), 1.6); return; }
       case 'jellyfish': { for (let i = 0; i < intRange(rng, 2, 4); i++) addEnt(sp, new Jelly(eject(P.clone().add(new THREE.Vector3(range(rng, -4, 4), range(rng, -1, 3), range(rng, -4, 4))), 4), rng), 1.2); return; }

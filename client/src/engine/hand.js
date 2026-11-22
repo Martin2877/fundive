@@ -2,37 +2,37 @@
 // makeHand 建手，poseHand 摆手势； DiveHand 是第一人称手臂（平时藏在画面外）。
 import * as THREE from 'three';
 
-const gloveMat = new THREE.MeshStandardMaterial({ color: 0x18222a, roughness: 0.85 });
+const gloveMat = new THREE.MeshStandardMaterial({ color: 0x18222a, roughness: 0.82 });
 const skinMat = new THREE.MeshStandardMaterial({ color: 0x22323c, roughness: 0.7 });
-const cuffMat = new THREE.MeshStandardMaterial({ color: 0x101a20, roughness: 0.9 });
-const fpGloveMat = new THREE.MeshStandardMaterial({ color: 0x0d1319, roughness: 0.95 }); // 第一人称手套更深色——灯照下剪影才读得出指型
+const cuffMat = new THREE.MeshStandardMaterial({ color: 0x101a20, roughness: 0.88 });
+const fpGloveMat = new THREE.MeshStandardMaterial({ color: 0x1c2833, roughness: 0.78 }); // 第一人称氯丁手套：保留指缝层次，不在暗处糊成一团
 
-// 手型表：f 四指卷曲(0伸 ~2 全握)，d 末节的附加比例，th 拇指卷曲，thIn 拇指内收，thZ 拇指外张角
+// 手型表：f 四指卷曲(0伸 ~2 全握)，th 拇指卷曲，thIn 拇指内收，thZ 拇指外张角
 const POSES = {
-  fist:     { f: [1.75, 1.85, 1.85, 1.7], th: 1.25, thIn: 0.15, thZ: 0.95, spread: 0.5 },
-  grip:     { f: [0.95, 1.1, 1.1, 0.95],  th: 0.85, thIn: 0.2,  thZ: 0.85, spread: 0.5 },
-  palm:     { f: [0.05, 0.05, 0.05, 0.05], th: 0.2,  thIn: 0,    thZ: 0.95, spread: 1 },
-  point:    { f: [0.05, 1.9, 1.9, 1.75],  th: 1.05, thIn: 0.25, thZ: 0.85, spread: 0.6 },
-  thumbsup: { f: [1.85, 1.9, 1.9, 1.75],  th: 0.05, thIn: 0,    thZ: 0.3,  spread: 0.5 },
-  ok:       { f: [1.45, 0.08, 0.1, 0.12], th: 1.3,  thIn: 1.3,  thZ: 0.4,  spread: 1 },
-  pinch:    { f: [1.0, 1.55, 1.65, 1.55], th: 1.0,  thIn: 0.4,  thZ: 0.8,  spread: 0.5 },
-  press:    { f: [0.08, 0.08, 1.7, 1.6],  th: 0.9,  thIn: 0.1,  thZ: 0.85, spread: 0.2 },
+  fist:     { f: [1.75, 1.85, 1.85, 1.7], th: 1.15, thIn: 0.25, thZ: 0.85, spread: 0.4 },
+  grip:     { f: [1.1, 1.2, 1.2, 1.05],   th: 0.85, thIn: 0.35, thZ: 0.75, spread: 0.45 },
+  palm:     { f: [0.06, 0.05, 0.06, 0.08], th: 0.15, thIn: 0.1, thZ: 0.85, spread: 1 },
+  point:    { f: [0.05, 1.85, 1.85, 1.75], th: 0.9, thIn: 0.35, thZ: 0.7,  spread: 0.5 },
+  thumbsup: { f: [1.85, 1.9, 1.9, 1.8],   th: 0.05, thIn: 0.05, thZ: 1.35, spread: 0.4 },
+  ok:       { f: [1.32, 0.08, 0.1, 0.12], th: 0.9,  thIn: 0.75, thZ: 0.65, spread: 0.9 },
+  pinch:    { f: [0.95, 1.65, 1.75, 1.65], th: 0.8, thIn: 0.65, thZ: 0.55, spread: 0.4 },
+  press:    { f: [0.08, 0.08, 1.7, 1.65], th: 0.9,  thIn: 0.25, thZ: 0.75, spread: 0.2 },
 };
 
 // 手势名 -> 手型（水下通用手势：OK=ok圈、上升=竖拇指、求助=挥掌、指=食指、灯=握灯）
 export const GESTURE_POSE = { ok: 'ok', up: 'thumbsup', help: 'palm', line: 'point', light: 'grip' };
 
-// 建一只右手。局部坐标：掌心朝 +z，手指朝 +y，拇指在 -x 侧。
-// 返回 group；group.userData.fingers = [拇指, 食,中,无名,小]（每根 {k 指根, d 末节}）。
-export function makeHand({ scale = 1, mat = skinMat } = {}) {
+// 建一只手。局部坐标：掌心朝 +z，手指朝 +y。right=true 时拇指在 +x（第一人称右手掌心朝己）。
+export function makeHand({ scale = 1, mat = skinMat, right = false } = {}) {
+  const s = right ? 1 : -1;
   const g = new THREE.Group();
-  // 掌：压扁的椭球（圆角比盒子自然）+ 拇指根部的鱼际鼓包
+  // 掌：压扁的椭球 + 腕底 + 拇指根部鱼际
   const palm = new THREE.Mesh(new THREE.SphereGeometry(0.048, 10, 8), mat);
-  palm.scale.set(0.92, 1.18, 0.42); palm.position.set(0, 0.045, 0);
-  const heel = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), mat);
-  heel.scale.set(1, 0.9, 0.55); heel.position.set(0, 0.005, 0.004);
-  const thenar = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 6), mat);
-  thenar.scale.set(0.8, 1.1, 0.5); thenar.position.set(-0.032, 0.028, 0.012);
+  palm.scale.set(0.92, 1.15, 0.42); palm.position.set(0, 0.045, 0);
+  const heel = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 6), mat);
+  heel.scale.set(1.05, 0.95, 0.58); heel.position.set(0, 0.002, 0.004);
+  const thenar = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), mat);
+  thenar.scale.set(0.8, 1.1, 0.55); thenar.position.set(s * 0.031, 0.028, 0.012);
   g.add(palm, heel, thenar);
 
   const fingers = [];
@@ -42,23 +42,24 @@ export function makeHand({ scale = 1, mat = skinMat } = {}) {
     const m1 = new THREE.Mesh(new THREE.CapsuleGeometry(r, p1, 3, 7), mat);
     m1.position.y = p1 / 2;
     const d = new THREE.Group(); d.position.y = p1;
-    const m2 = new THREE.Mesh(new THREE.CapsuleGeometry(r * 0.88, p2, 3, 7), mat);
+    const m2 = new THREE.Mesh(new THREE.CapsuleGeometry(r * 0.86, p2, 3, 7), mat);
     m2.position.y = p2 / 2;
     d.add(m2); k.add(m1, d); g.add(k);
     return { k, d };
   };
-  // 拇指：根部在掌侧 -x 下方，先外张（略长略粗，竖拇指才读得出）
-  const thumb = new THREE.Group(); thumb.position.set(-0.048, 0.005, 0.01);
-  const thBase = new THREE.Group(); thBase.rotation.set(0.15, 0, 0.95);
-  const thK = fingerAt(0, 0, 0.062, 0.015);
+  // 拇指：根部在掌侧，s=+1 时在 +x 侧
+  const thumb = new THREE.Group(); thumb.position.set(s * 0.046, 0.008, 0.01);
+  const thBase = new THREE.Group(); thBase.rotation.set(0.15, 0, -s * 0.95);
+  const thK = fingerAt(0, 0, 0.058, 0.0145);
   thBase.add(thK.k); thK.k.position.set(0, 0, 0);
   thumb.add(thBase); g.add(thumb);
   fingers.push({ k: thK.k, d: thK.d, base: thumb, inG: thBase, isThumb: true });
 
-  // 食、中、无名、小（由 -x 到 +x）
-  const defs = [[-0.031, 0.072, 0.013], [-0.011, 0.078, 0.014], [0.009, 0.074, 0.013], [0.029, 0.066, 0.011]];
-  for (const [x, y, r] of defs) fingers.push(fingerAt(x, y, 0.068, r));
+  // 食、中、无名、小（食指靠近拇指侧）
+  const defs = [[s * 0.030, 0.074, 0.068, 0.0125], [s * 0.010, 0.080, 0.075, 0.0135], [-s * 0.010, 0.076, 0.070, 0.0125], [-s * 0.029, 0.068, 0.056, 0.0105]];
+  for (const [x, y, len, r] of defs) fingers.push(fingerAt(x, y, len, r));
   g.userData.fingers = fingers;
+  g.userData.side = s;
   g.scale.setScalar(scale);
   return g;
 }
@@ -67,10 +68,11 @@ export function makeHand({ scale = 1, mat = skinMat } = {}) {
 export function poseHand(hand, name, fold = 0.85) {
   const p = POSES[name] || POSES.fist;
   const fs = hand.userData.fingers;
+  const s = hand.userData.side || -1;
   // 拇指
   const th = fs[0];
-  th.base.rotation.y = -p.thIn * 0.9;
-  th.inG.rotation.z = p.thZ ?? 0.95;
+  th.base.rotation.y = s * p.thIn * 0.9;
+  th.inG.rotation.z = -s * (p.thZ ?? 0.95);
   th.k.rotation.x = p.th * 0.55;
   th.d.rotation.x = p.th * 0.9;
   // 四指
@@ -78,7 +80,7 @@ export function poseHand(hand, name, fold = 0.85) {
     const c = p.f[i];
     fs[i + 1].k.rotation.x = c;
     fs[i + 1].d.rotation.x = c * fold;
-    fs[i + 1].k.rotation.z = (i - 1.5) * 0.07 * (p.spread ?? 0.5);
+    fs[i + 1].k.rotation.z = -s * (i - 1.5) * 0.07 * (p.spread ?? 0.5);
   }
 }
 
@@ -102,7 +104,7 @@ export class DiveHand {
     // 手腕 -> 手
     this.wrist = new THREE.Group();
     this.g.add(this.wrist);
-    this.hand = makeHand({ scale: 1.12, mat: fpGloveMat });
+    this.hand = makeHand({ scale: 1.12, mat: fpGloveMat, right: true });
     this.wrist.add(this.hand);
 
     // 手势"灯"：握住的小手电 + 点光（仅在 light 手势时亮起并画圈）
@@ -142,17 +144,17 @@ export class DiveHand {
     this._gest = g;
     // [pose, x, y, z, rotX, rotY, rotZ]：位置在面镜前偏右下，留出视野中心
     const P = {
-      ok:    ['ok',        0.14, -0.07, -0.58, -0.15, -0.45, 0],  // 3/4 视角让 OK 圈的豁口可见
-      up:    ['thumbsup',  0.13,  0.02, -0.58, -0.05, 0.15, -0.8], // 滚腕让拇指朝天
-      help:  ['palm',      0.15, -0.01, -0.58, -0.1,  0, 0],
-      line:  ['point',     0.09, -0.05, -0.6,  -0.95, 0.28, 0],  // 食指指向左前方（引绳方向）
-      light: ['grip',      0.13, -0.05, -0.58, -0.35, 0, 0],
-      hold:  ['press',     0.0,   0.26, -0.46, -2.6,  0, 0],    // 两指压面镜上沿
-      nose:  ['pinch',     0.02,  0.05, -0.42, -0.5,  0, 0],    // 捏鼻
-      mask:  ['palm',      0.3,  -0.3,  -0.5,  -0.3,  0.5, 0],  // 手拿面镜在侧
-      bcd:   ['grip',     -0.2,  -0.32, -0.48, -0.9,  0.5, 0],  // 左胸充气阀
-      dump:  ['fist',      0.3,   0.3,  -0.55, -0.3,  0, 0],    // 拉泄气阀
-      reg:   ['grip',      0.13, -0.2,  -0.46, -0.7,  0, 0],    // 嘴边二级头
+      ok:    ['ok',        0.13, -0.07, -0.56, -0.1,  -0.55, 0],    // 3/4 视角让 OK 圈清晰可见
+      up:    ['thumbsup',  0.13, -0.01, -0.56,  0.0,  -0.45, 1.38], // 滚腕让右手拇指朝天
+      help:  ['palm',      0.14, -0.02, -0.56, -0.08, -0.2,  0],
+      line:  ['point',     0.10, -0.05, -0.58, -0.85, -0.25, 0.15], // 食指指向左前方
+      light: ['grip',      0.13, -0.06, -0.56, -0.35, -0.15, 0],
+      hold:  ['press',     0.06,  0.21, -0.44, -0.35, -0.3,  0.75], // 自然抬手按压面镜上沿
+      nose:  ['pinch',     0.03,  0.04, -0.42, -0.4,  -0.35, 0.3],  // 捏鼻
+      mask:  ['palm',      0.26, -0.26, -0.5,  -0.25, -0.5,  0.2],  // 手拿面镜在侧
+      bcd:   ['grip',     -0.16, -0.28, -0.48, -0.75, -0.45, 0.3],  // 左胸充气阀
+      dump:  ['fist',      0.26,  0.24, -0.52, -0.25, -0.2,  0.2],  // 拉泄气阀
+      reg:   ['grip',      0.12, -0.19, -0.46, -0.65, -0.2,  0.1],  // 嘴边二级头
     }[g] || ['fist', 0.15, -0.1, -0.55, 0, 0, 0];
     this.set(P[0], P[1], P[2], P[3], false, P.slice(4));
     this.g.visible = true;

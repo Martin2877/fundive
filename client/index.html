@@ -142,15 +142,19 @@ ol.steps{margin:8px 0 0;padding-left:20px;font-size:12px;line-height:1.8;color:v
 #hud .gbar em{position:absolute;top:-3px;bottom:-3px;width:2px;background:#ffb27f;border-radius:1px}
 #hud .warn{color:#ffb27f}
 #hud .bad{color:#ff7f7f}
-#hud #obj{position:absolute;top:18px;left:50%;transform:translateX(-50%);text-align:center;font-size:12px;letter-spacing:.14em;color:var(--ink);background:rgba(2,10,12,.4);border:1px solid var(--line);border-radius:999px;padding:6px 18px}
-#hud #cmp{position:absolute;top:52px;left:50%;transform:translateX(-50%);width:280px;height:22px;overflow:hidden;background:rgba(2,10,12,.45);border:1px solid var(--line);border-radius:999px}
-#hud #region{position:absolute;top:80px;left:50%;transform:translateX(-50%);font-size:10.5px;letter-spacing:.34em;color:var(--dim);text-shadow:0 1px 8px #000}
+#hud #topc{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;width:max-content;max-width:min(620px,78vw)}
+#hud #topc [hidden]{display:none}
+#hud #obj{text-align:center;font-size:12px;letter-spacing:.14em;line-height:1.55;color:var(--ink);background:rgba(2,10,12,.4);border:1px solid var(--line);border-radius:18px;padding:6px 18px}
+#hud #cmpw{display:flex;flex-direction:column;align-items:center;gap:1px}
+#hud #cmp{position:relative;width:280px;height:22px;overflow:hidden;background:rgba(2,10,12,.45);border:1px solid var(--line);border-radius:999px}
+#hud #region{font-size:10.5px;letter-spacing:.34em;color:var(--dim);text-shadow:0 1px 8px #000;text-align:center}
+#hud #leg{font-size:11px;letter-spacing:.12em;color:var(--lagoon);text-shadow:0 1px 8px #000;text-align:center;background:rgba(2,10,12,.3);border-radius:999px;padding:2px 12px}
 #hud #cmp .ct{position:absolute;inset:0}
 #hud #cmp .ctick{position:absolute;top:3px;left:0;font-size:10.5px;letter-spacing:.1em;color:var(--dim);transform:translateX(-999px)}
 #hud #cmp .ctick[data-d="0"]{color:var(--ink);font-weight:700}
 #hud #cmp .cway{position:absolute;top:3px;left:-5px;font-size:11px;color:#ffd27f;text-shadow:0 0 8px #000}
 #hud #cmp .ccaret{position:absolute;top:1px;left:50%;width:1.5px;height:8px;background:var(--ink);transform:translateX(-50%)}
-#hud #cmp .cdeg{position:absolute;top:-19px;left:50%;transform:translateX(-50%);font-style:normal;font-size:10.5px;letter-spacing:.15em;color:var(--lagoon)}
+#hud #cmpw .cdeg{font-style:normal;font-size:10.5px;letter-spacing:.15em;color:var(--lagoon);line-height:1.25}
 #hud #obj b{color:var(--lagoon)}
 #hud #lineinfo{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);font-size:12px;letter-spacing:.18em;color:var(--dim)}
 #hud #hint{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);font-size:12.5px;color:var(--ink);text-shadow:0 1px 12px #000;background:rgba(2,10,12,.5);padding:6px 16px;border-radius:999px;opacity:0;transition:opacity .3s}

@@ -21,6 +21,7 @@ export class HUD {
       </div></div>
       <div class="corner bl"><div class="panel">
         <div class="prow"><span class="lbl">${t('心率')}</span><b id="h-hr">62</b><small>bpm</small></div>
+        <div class="sub" id="h-buoy"></div>
         <div class="sub" id="h-deco"></div>
         <div class="sub" id="h-cold"></div>
       </div></div>
@@ -28,13 +29,16 @@ export class HUD {
         <div class="prow"><span class="lbl" id="h-linelbl">${t('引绳')}</span><b id="h-line">—</b></div>
         <div class="sub" id="h-carry"></div>
       </div></div>
-      <div id="obj"></div>
-      <div id="cmp" hidden><div class="ct">
-        <span class="ctick" data-d="0">N</span><span class="ctick" data-d="45">NE</span><span class="ctick" data-d="90">E</span><span class="ctick" data-d="135">SE</span>
-        <span class="ctick" data-d="180">S</span><span class="ctick" data-d="225">SW</span><span class="ctick" data-d="270">W</span><span class="ctick" data-d="315">NW</span>
-        <span class="cway" id="cmp-w">◆</span>
-      </div><i class="ccaret"></i><em class="cdeg" id="cmp-h">0°</em></div>
-      <div id="region"></div>
+      <div id="topc">
+        <div id="obj"></div>
+        <div id="leg" hidden></div>
+        <div id="cmpw" hidden><em class="cdeg" id="cmp-h">0°</em><div id="cmp"><div class="ct">
+          <span class="ctick" data-d="0">N</span><span class="ctick" data-d="45">NE</span><span class="ctick" data-d="90">E</span><span class="ctick" data-d="135">SE</span>
+          <span class="ctick" data-d="180">S</span><span class="ctick" data-d="225">SW</span><span class="ctick" data-d="270">W</span><span class="ctick" data-d="315">NW</span>
+          <span class="cway" id="cmp-w">◆</span>
+        </div><i class="ccaret"></i></div></div>
+        <div id="region" hidden></div>
+      </div>
       <div id="exitmk" style="opacity:0"></div>
       <div id="lineinfo"></div>
       <div id="hint"></div>
@@ -60,13 +64,13 @@ export class HUD {
     c.filter = 'blur(30px)';
     const lens = (cx) => {
       c.beginPath();
-      c.ellipse(cx, 430, 380, 300, 0, 0, Math.PI * 2);
+      c.ellipse(cx, 445, 435, 350, 0, 0, Math.PI * 2);
       c.fill();
     };
-    lens(540); lens(1060);
+    lens(530); lens(1070);
     // 鼻袋（两镜中间向下的三角口）
     c.beginPath();
-    c.moveTo(730, 620); c.lineTo(870, 620); c.lineTo(830, 800); c.lineTo(770, 800); c.closePath();
+    c.moveTo(715, 630); c.lineTo(885, 630); c.lineTo(842, 825); c.lineTo(758, 825); c.closePath();
     c.fill();
     c.globalCompositeOperation = 'source-over';
     // 镜片内一点点玻璃反光
@@ -81,8 +85,8 @@ export class HUD {
     c.filter = 'blur(14px)';
     c.strokeStyle = 'rgba(120,160,170,0.10)';
     c.lineWidth = 26;
-    c.beginPath(); c.ellipse(540, 430, 395, 315, 0, 0, Math.PI * 2); c.stroke();
-    c.beginPath(); c.ellipse(1060, 430, 395, 315, 0, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.ellipse(530, 445, 450, 365, 0, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.ellipse(1070, 445, 450, 365, 0, 0, Math.PI * 2); c.stroke();
     el.style.backgroundImage = `url(${cv.toDataURL()})`;
   }
   show() { this.el.hidden = false; }
@@ -117,10 +121,20 @@ export class HUD {
     $('#h-gasmark').style.left = `${Math.min(99, (ctx.turnGas || 140) / gmax * 100)}%`;
     const tt = Math.floor(p.time);
     $('#h-gassub').textContent = `${t('折返')} ${ctx.turnGas || 140}bar · ${Math.floor(tt / 60)}:${String(tt % 60).padStart(2, '0')}`;
-    // —— 左下：心率 + 氮负荷/减压 ——
+    // —— 左下：心率 + 体感浮力 + 氮负荷/减压 ——
     const hEl = $('#h-hr');
     hEl.textContent = Math.round(p.heart);
     hEl.style.color = p.heart > 120 ? '#ff7f7f' : p.heart > 95 ? '#ffb27f' : '';
+    const bEl = $('#h-buoy');
+    if (bEl) {
+      if (p.onLand) { bEl.textContent = ''; }
+      else {
+        const b = p.buoy + (p.lung - 0.55) * 0.18;
+        const txt = b > 0.32 ? t('明显上浮感') : b > 0.08 ? t('微微发飘') : b < -0.32 ? t('明显下沉感') : b < -0.08 ? t('微微下沉') : t('中性悬浮');
+        bEl.textContent = txt;
+        bEl.style.color = Math.abs(b) > 0.32 ? '#ffb27f' : Math.abs(b) <= 0.08 ? '#7fe9ea' : '';
+      }
+    }
     const dEl = $('#h-deco');
     if (p.decoOwed > 2) { dEl.textContent = t('减压停留 {s}s', { s: Math.ceil(p.decoOwed) }); dEl.style.color = '#ff7f7f'; }
     else {
@@ -152,9 +166,10 @@ export class HUD {
     if (p.inAir) { br.textContent = t(p.domeBad ? '⚠ 气室空气不良 · 别摘二级头' : '气室 · 空气可呼吸'); br.style.color = p.domeBad ? '#ffb27f' : '#7fe9ea'; }
     $('#obj').innerHTML = ctx.objectiveText;
     // —— 指北针：顶部罗盘带，◆ = 出口/目标方位 ——
-    const cmp = this.$('#cmp');
+    const cmpw = this.$('#cmpw');
     if (ctx.compass) {
-      cmp.hidden = false;
+      cmpw.hidden = false;
+      const cmp = this.$('#cmp');
       const W = cmp.clientWidth || 300, px = W / 100;   // 视野 ±50°
       const h = ctx.compass.h;
       for (const el of cmp.querySelectorAll('.ctick')) {
@@ -167,7 +182,7 @@ export class HUD {
       wp.style.transform = `translateX(${Math.max(6, Math.min(W - 6, W / 2 + wd * px))}px)`;
       wp.style.opacity = Math.abs(wd) < 49 ? 1 : 0.35;
       this.$('#cmp-h').textContent = `${Math.round((h + 360) % 360)}°`;
-    } else cmp.hidden = true;
+    } else cmpw.hidden = true;
   }
 
   // Tab（触屏为「键位」钮）一键唤出/收起键位表
@@ -203,7 +218,9 @@ export class HUD {
     this._hintT = setTimeout(() => h.classList.remove('show'), sec * 1000);
   }
   setLineInfo(s) { this.$('#lineinfo').textContent = t(s); }
-  setRegion(name) { this.$('#region').textContent = name ? t(name) : ''; }
+  // 潜导航段行：◆ 下一站名 · 距离（null 隐藏）
+  setLeg(s) { const e = this.$('#leg'); if (!s) { e.hidden = true; return; } e.hidden = false; e.textContent = s; }
+  setRegion(name) { const r = this.$('#region'); r.textContent = name ? t(name) : ''; r.hidden = !name; }
   setLineWord(w) { const el = this.el.querySelector('.corner.br .lbl'); if (el) el.textContent = t(w); }
   // 出口方位标记：把船/冰洞投到屏幕上的方位指示（x,y 像素；null 隐藏；hot=目标完成后的强调态）
   setExitMark(x, y, html, hot) {

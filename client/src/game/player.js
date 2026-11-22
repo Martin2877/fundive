@@ -268,7 +268,15 @@ export class Player {
     let drain = this.inAir && !this.domeBad ? 0 : sac * dt;   // 气室里摘掉二级头，吸洞里的空气
     if (this.freeflow > 0) { this.freeflow -= dt; drain += 0.9 * this.ata() * dt; }
     this.gas -= drain;
-    if (this.gas <= 0) { this.gas = 0; if (!this.noGas || this.depth() > 2.5) return this.die(this.freeflow > 0 ? 'freeflow' : 'out_of_air', ctx); }
+    if (this.gas <= 0) { this.gas = 0; if (!this.gasping && (!this.noGas || this.depth() > 2.5)) return this.die(this.freeflow > 0 ? 'freeflow' : 'out_of_air', ctx); }
+    // 气量分级前兆：不是突然断气，先一口比一口沉
+    if (!this.inAir && !this.gasping) {
+      const gw = (this._gw = this._gw || {});
+      if (this.gas < 60 && !gw.a) { gw.a = 1; ctx.talk?.('呼吸开始发沉——气压在往下掉，计划回程。'); }
+      if (this.gas < 30 && !gw.b) { gw.b = 1; ctx.talk?.('每一口都要用力才吸得动——还剩最后一小段，现在就该往出口走。'); }
+      if (this.gas < 12 && !gw.c) { gw.c = 1; ctx.talk?.('吸气明显吃力——快见底了！'); }
+      if (this.gas > 70) this._gw = {};
+    }
 
     // —— 氮负荷 ——
     const ndl = ndlAt(depth);
@@ -288,10 +296,29 @@ export class Player {
     if (this.inAir) stress += this.domeBad ? 0.12 : -0.3;
     if (this.freeflow > 0) stress += 0.3;
     if (this.noGas) stress += 0.12;
+    if (this.gasping) stress += 0.25;
     if (!this.lightOn && !this.backupOn) stress += 0.25;
     if (ctx.buddyLost) stress += 0.2;
-    this.panic = THREE.MathUtils.clamp(this.panic + (stress - 0.08) * dt, 0, 1);
-    if (this.panic >= 1) return this.die('panic', ctx);
+    // 心慌分级：先喘、再抖、最后失控——失控前有一段"可挽回"的危机窗口，停下来深呼吸能把自己拉回来
+    const still = Math.abs(input.mx || 0) + Math.abs(input.mz || 0) < 0.05 && !input.kick && !input.frog && this.vel.length() < 1.3;
+    let dp = (stress - 0.08) * dt;
+    if (still && stress < 0.25) dp -= (this._crisisT > 0 ? 0.2 : 0.05) * dt;
+    this.panic = THREE.MathUtils.clamp(this.panic + dp, 0, 1);
+    this.panicMax = Math.max(this.panicMax || 0, this.panic);
+    const pw = (this._pw = this._pw || {});
+    if (this.panic > 0.45 && !pw.a) { pw.a = 1; ctx.talk?.('呼吸变急，心跳在加快——停下动作，放慢呼吸。'); }
+    if (this.panic > 0.7 && !pw.b) { pw.b = 1; ctx.talk?.('手脚开始不听使唤——别再乱蹬，停住，深呼吸，想清楚再动。'); }
+    if (this.panic < 0.3) this._pw = {};
+    if (this.panic >= 1 && !this._crisisT) {
+      this._crisisT = 12; this.panic = 0.97;
+      ctx.talk?.('你快失控了！立刻停止一切动作，放松、慢慢呼气——还来得及。', 6);
+    }
+    if (this._crisisT > 0) {
+      this._crisisT -= dt;
+      if (this.panic < 0.72) { this._crisisT = 0; ctx.talk?.('稳住了。心跳慢慢降下来——别再让它冲高。'); }
+      else if (this._crisisT <= 0) return this.die('panic', ctx);
+      else this.panic = Math.min(this.panic, 0.99);
+    }
     this.heart = 58 + depth * 0.35 + this.panic * 80 + (input.kick ? 25 : 0) + this.narcosis * 15;
 
     // —— 设备事故 ——

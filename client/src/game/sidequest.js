@@ -26,10 +26,14 @@ export class SideQuests {
 
   _make(s, pos) {
     const g = new THREE.Group();
-    const col = s.kind === 'note' ? 0xffd27f : s.kind === 'item' ? 0x9fe8c0 : 0xff7f6f;
+    const col = s.kind === 'relic' ? 0xffe08a : s.kind === 'note' ? 0xffd27f : s.kind === 'item' ? 0x9fe8c0 : 0xff7f6f;
     if (s.kind === 'distress') {
       const v = makeVictim(); v.scale.setScalar(1); g.add(v);
       g.userData.v = v;
+    } else if (s.kind === 'relic') {
+      const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.16),
+        new THREE.MeshStandardMaterial({ color: 0x8a6d2f, metalness: 0.7, roughness: 0.3, emissive: col, emissiveIntensity: 0.7 }));
+      g.add(m);
     } else {
       const m = new THREE.Mesh(
         s.kind === 'note' ? new THREE.BoxGeometry(0.22, 0.03, 0.3) : new THREE.CylinderGeometry(0.07, 0.07, 0.12, 8),
@@ -63,6 +67,15 @@ export class SideQuests {
       if (player.gas < 70) { talk(t('你自己的气也不够了——帮不了他。')); return true; }
       player.gas -= 25;
       talk(t('你把备用二级头递给他，两人缓缓上升了一段——他冲你比了个 OK，转身游走了。'));
+    } else if (n.kind === 'relic') {
+      // 完美者印记：只有这张图拿过 S 评的手才碰得动——不认就不收，留着下次再来
+      if (store.data.chapters?.[this.map.id]?.grade === 'S') {
+        store.addLore(`relic:${this.map.id}`);
+        talk(t('印记在你掌心亮了一下，然后安静地认了主——这片水域把你当自己人了。'), 6);
+      } else {
+        talk(t('一枚悬着的金色印记。它不认你——在这张图拿到 S 评，再回来。'), 5);
+        return true;
+      }
     } else if (n.kind === 'note') {
       const txt = STORY[this.map.id].notes[n.idx];
       store.addLore(`${this.map.id}:${n.idx}`);

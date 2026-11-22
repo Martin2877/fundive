@@ -62,7 +62,10 @@ const SHADER = {
       }
       acc *= stepL * uScatter;
       if (any(notEqual(acc, acc))) acc = vec3(0.0);   // NaN 保险：经 bloom 会放大成全屏黑闪
-      gl_FragColor = vec4(base.rgb + acc, base.a);
+      vec3 hdr = max(base.rgb, vec3(0.0)) + max(acc, vec3(0.0));
+      // 软压缩 HDR 尖峰：防止近距离灯斑/高光在 UnrealBloomPass 中炸成全屏白闪
+      hdr = hdr / (1.0 + max(hdr - vec3(1.05), vec3(0.0)) * 0.72);
+      gl_FragColor = vec4(hdr, base.a);
     }`,
 };
 

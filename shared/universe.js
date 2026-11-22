@@ -40,12 +40,17 @@ export function makeUniverse(mapId, seed) {
   const rng = universeRng(mapId, seed);
   const h = map.hazards || {};
 
-  // —— 目标：从地图允许的目标类型中加权抽取 ——
-  const objType = weighted(rng, map.objectives.map(o => [
-    o, o === 'explore' ? 3 : o === 'photo' ? 3 : o === 'salvage' ? 2.4 : o === 'survey' ? 2.2 : 2.6,
+  // —— 目标：从地图允许的目标类型中加权抽取（普通图额外可能抽到「生物普查」多目标任务） ——
+  const photoPool = map.creatures.filter(c => SPECIES[c] && SPECIES[c].cat !== 'microbe');
+  const objPool = map.objectives.slice();
+  if (!map.hidden && photoPool.length >= 5) objPool.push('census');
+  const objType = weighted(rng, objPool.map(o => [
+    o, o === 'explore' ? 3 : o === 'photo' ? 3 : o === 'salvage' ? 2.4 : o === 'survey' ? 2.2 : o === 'census' ? 2.6 : 2.6,
   ]));
-  // 目标压在路线的最后两节——引绳一路带你到它边上，不会在半路摸黑找
-  const deepIdx = Math.max(2, map.route.length - 1 - intRange(rng, 0, Math.min(1, map.route.length - 3)));
+  // 目标压在路线后半段，但具体落点随宇宙变化——有的在中段大厅，有的贴到尽头。
+  // 引绳/锚绳一路带你到它附近，不会在半路摸黑找。
+  const n = map.route.length;
+  const deepIdx = intRange(rng, Math.max(2, Math.floor(n * 0.55)), n - 1);
   const deepNode = map.route[deepIdx];
 
   const objective = { type: objType, at: deepIdx, place: deepNode.name || '主通道深处' };
@@ -57,7 +62,13 @@ export function makeUniverse(mapId, seed) {
     objective.item = pick(rng, SALVAGE_ITEMS);
   } else if (objType === 'rescue') {
     objective.victim = pick(rng, VICTIMS);
-  } else if (objType === 'survey') {
+  }
+  // 任务链：打捞/搜救先在半途发现踪迹（线索点），再循迹到主目标——地图大，一潜要走得满
+  if (objType === 'salvage' || objType === 'rescue') {
+    const clueAt = intRange(rng, Math.max(1, Math.floor(deepIdx * 0.35)), Math.max(1, deepIdx - 2));
+    if (clueAt < deepIdx) objective.steps = [{ node: clueAt, kind: 'clue' }, { node: deepIdx, kind: 'act' }];
+  }
+  if (objType === 'survey') {
     // 巡线标记：沿路线撒三处标记石（前/中/深），全部摸过才算
     const n = map.route.length;
     const legs = new Set([
@@ -65,7 +76,7 @@ export function makeUniverse(mapId, seed) {
       intRange(rng, Math.floor(n * 0.6), Math.floor(n * 0.8)),
       intRange(rng, Math.floor(n * 0.85), n - 1),
     ]);
-    while (legs.size < 3) legs.add(Math.min(n - 1, Math.max(...legs) + 1));
+    for (let k = 2; legs.size < 3 && k < n; k++) legs.add(k);   // 路线短时随机段会撞车：补最近的空位（原 while 在短路线会死循环）
     objective.legs = [...legs].sort((a, b) => a - b);
   }
 
@@ -88,6 +99,12 @@ export function makeUniverse(mapId, seed) {
   if (objective.species && placements.filter(p => p.sp === objective.species).length < 2) {
     placements.push({ sp: objective.species, path: 'main', at: deepIdx });
     placements.push({ sp: objective.species, path: 'main', at: intRange(rng, 1, deepIdx - 1) });
+  }
+
+  // 生物普查：从"确实布了点"的物种里挑 3 种，要求一潜拍齐（多目标，逼你把整张图逛一遍）
+  if (objType === 'census') {
+    const placed = [...new Set(placements.filter(p => p.path === 'main' && photoPool.includes(p.sp)).map(p => p.sp))];
+    objective.list = shuffled(rng, placed.length >= 3 ? placed : photoPool).slice(0, 3);
   }
 
   // —— 宇宙修饰：能见度/水流/氮醉/设备/运气 ——
@@ -126,12 +143,52 @@ export function makeUniverse(mapId, seed) {
       if (kind === 'distress') s.node = intRange(srng, Math.min(3, last), last);
       sides.push(s);
     }
+    // 完美者印记：每张有剧情的图都沉睡着一枚。各端都生成（联机一致），
+    // 但只有本机账号在这张图拿过 S 评的手才碰得动它——别人看得见，拿不到。
+    sides.push({ id: 's_relic', kind: 'relic', node: intRange(srng, 1, last) });
   }
 
   const eggs = EASTER_EGGS.filter(e => chance(rng, e.w / 40)).map(e => e.id);
 
+  // —— 附加挑战：与主目标并行的 2~3 条小目标（独立随机流，不扰动其他生成） ——
+  const bonus = [];
+  if (!map.hidden) {
+    const brng = universeRng(mapId, `${seed}::bonus`);
+    const pool = [];
+    if (photoPool.length >= 3) {
+      pool.push({ kind: 'shots', n: intRange(brng, 3, 5) });
+      pool.push({ kind: 'species', n: intRange(brng, 2, Math.min(4, photoPool.length)) });
+    }
+    if (photoPool.some(c => SPECIES[c].rarity >= 4)) pool.push({ kind: 'rare' });
+    if (map.maxDepth >= 14) pool.push({ kind: 'depth', n: Math.max(10, Math.round(map.maxDepth * range(brng, 0.55, 0.8))) });
+    if (!map.kind && (map.branches || []).length >= 2) pool.push({ kind: 'branch', n: intRange(brng, 1, 2) });
+    pool.push({ kind: 'gas', n: 60 + 10 * intRange(brng, 0, 3) });
+    pool.push({ kind: 'calm' });
+    pool.push({ kind: 'clean', n: intRange(brng, 2, 4) });
+    const want = chance(brng, 0.35) ? 3 : 2;
+    for (const b of shuffled(brng, pool).slice(0, want)) bonus.push(b);
+  }
+
   // —— 剧情变体：同一个洞、同一个宇宙，讲法不一样 ——
   const storyVar = intRange(rng, 0, 2);
+
+  // —— 计划动线（uni.plan）：潜导航段——入口之后沿途的具名节点（采样）→ 目标点 → 回入口。
+  // 教学/隐藏图不排（课节自己带流程）。罗盘 ◆ 与 HUD 航段行都指向当前段。 ——
+  const plan = [];
+  if (!map.hidden) {
+    const objAt = objective.at;
+    const named = map.route.map((n, i) => (i > 0 && i < objAt && n.name) ? i : 0).filter(Boolean);
+    // 具名点太多时均匀采样到 ≤4 站：潜导只点关键站，不逐站报数；最后一站总保留（贴近目标的跳板）
+    let keep = named;
+    if (named.length > 4) {
+      keep = [];
+      const step = (named.length - 1) / 3;
+      for (let k = 0; k < 4; k++) keep.push(named[Math.round(k * step)]);
+    }
+    for (const i of new Set(keep)) plan.push({ node: i, kind: 'leg' });
+    plan.push({ node: objAt, kind: 'obj' });
+    plan.push({ node: 0, kind: 'exit' });
+  }
 
   // —— 随机事件时刻表：宇宙种子排定的突发事件（联机各端一致，各发一次） ——
   const events = [];
@@ -167,9 +224,29 @@ export function makeUniverse(mapId, seed) {
   return {
     mapId, seed,
     name: universeName(seed),
-    objective, placements, mods, branches, eggs, flavor, sides,
-    storyVar, events,
+    objective, placements, mods, branches, eggs, flavor, sides, bonus,
+    storyVar, events, plan,
   };
+}
+
+// 附加挑战进度：st = { shots, maxDepth, gas, stir, panicMax, branches }。final=true 的项要到出水时才算数。
+export function bonusProgress(b, st) {
+  const shots = (st.shots || []).filter(s => s.sp && s.stars > 0);
+  const sp = new Set(shots.map(s => s.sp));
+  switch (b.kind) {
+    case 'shots':   return { ok: shots.length >= b.n, text: t('拍到 {n} 张有效照片', { n: b.n }), prog: `${Math.min(shots.length, b.n)}/${b.n}` };
+    case 'species': return { ok: sp.size >= b.n, text: t('拍到 {n} 种不同生物', { n: b.n }), prog: `${Math.min(sp.size, b.n)}/${b.n}` };
+    case 'rare': {
+      const ok = [...sp].some(id => SPECIES[id]?.rarity >= 4);
+      return { ok, text: t('拍到一种稀有生物（稀有度≥4）'), prog: ok ? '✓' : '—' };
+    }
+    case 'depth':   return { ok: st.maxDepth >= b.n, text: t('下潜到 {n}m', { n: b.n }), prog: `${Math.floor(st.maxDepth)}/${b.n}m` };
+    case 'branch':  return { ok: (st.branches || 0) >= b.n, text: t('发现 {n} 条支洞', { n: b.n }), prog: `${Math.min(st.branches || 0, b.n)}/${b.n}` };
+    case 'gas':     return { ok: st.gas >= b.n, final: true, text: t('出水时气压 ≥{n}bar', { n: b.n }), prog: `${Math.round(st.gas)}bar` };
+    case 'calm':    return { ok: (st.panicMax || 0) <= 0.5, final: true, text: t('全程保持冷静（惊慌不过半）'), prog: (st.panicMax || 0) <= 0.5 ? '✓' : '✗' };
+    case 'clean':   return { ok: (st.stir || 0) <= b.n, final: true, text: t('搅沙不超过 {n} 次', { n: b.n }), prog: `${st.stir || 0}/${b.n}` };
+    default:        return { ok: false, text: '', prog: '' };
+  }
 }
 
 // ———— 程序化支洞：宇宙种子决定，给每张洞潜图补支线岔路 ————
@@ -279,6 +356,20 @@ export function genSideBranches(map, seed) {
   return out;
 }
 
+// 潜水评级：S/A/B/C。goodEnd=活着的好结局。目标完成是评 A/S 的前提；
+// 余气/冷静/干净（搅沙少）/附加挑战 加分。教学课不走这里（课节有自己的评分）。
+export function diveGrade(result, goodEnd) {
+  if (!goodEnd) return 'C';
+  const s = result.stats || {}, tg = result.replay?.turnGas ?? 140;
+  let sc = 0;
+  if (result.objectiveDone) sc += 2;
+  sc += Math.min(2, result.bonusDone || 0);
+  if ((s.gasLeft ?? 0) >= tg + 20) sc += 1;
+  if ((s.panicPeak ?? 1) < 0.3) sc += 1;
+  if ((s.stir ?? 9) <= 3) sc += 1;
+  return sc >= 6 ? 'S' : sc >= 4 ? 'A' : 'B';
+}
+
 export function objectiveText(u) {
   const o = u.objective;
   switch (o.type) {
@@ -287,6 +378,7 @@ export function objectiveText(u) {
     case 'salvage': return t('打捞「{n}」带回出口', { n: t(o.item.name) });
     case 'rescue':  return t('找到「{n}」拖带回出口', { n: t(o.victim.name) });
     case 'survey':  return t('巡线标记 {n} 处并返回', { n: o.legs?.length || 3 });
+    case 'census':  return t('生物普查：拍齐 {a}', { a: (o.list || []).map(s => spName(s)).join('、') });
     default: return t('下去看看');
   }
 }

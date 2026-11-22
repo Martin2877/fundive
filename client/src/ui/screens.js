@@ -3,7 +3,7 @@
 import { MAPS, SPECIES, ENDINGS, mapName, spName } from '@fundive/shared/maps.js';
 import { OBJECTIVE_DEFS } from '@fundive/shared/maps.js';
 import { COURSES } from '@fundive/shared/courses.js';
-import { makeUniverse, objectiveText } from '@fundive/shared/universe.js';
+import { makeUniverse, objectiveText, bonusProgress } from '@fundive/shared/universe.js';
 import { randomSeed, universeName } from '@fundive/shared/rng.js';
 import { store } from '../game/storage.js';
 import { t, tl, getLang } from '@fundive/shared/i18n.js';
@@ -11,6 +11,7 @@ import { STORY, storyOf } from '@fundive/shared/story.js';
 import { MSG, MAX_DIVERS } from '@fundive/shared/protocol.js';
 import { surveyCard } from './survey.js';
 import { account } from '../game/account.js';
+import { unlockReq } from '../game/guide.js';
 import { VERSION, channelKey, versionLabel, channelUrl } from '../version.js';
 
 const app = () => document.getElementById('app');
@@ -98,6 +99,7 @@ export function showMenu({ onSolo, onLobby, onBoard, onGallery, onTrain, onPrevi
         <div class="flavor" id="unibrief"></div>
         <div class="seedrow" style="margin:6px 0 0">
           <button class="btn small" id="reseed">${t('换一个宇宙')}</button>
+          <button class="btn small" id="daily">${t('今日宇宙')}</button>
           <button class="btn small" id="seededit">${t('输入宇宙坐标')}</button>
           <button class="btn small" id="seedcopy">${t('复制坐标')}</button>
         </div>
@@ -172,10 +174,12 @@ export function showMenu({ onSolo, onLobby, onBoard, onGallery, onTrain, onPrevi
     }
     list.innerHTML = '';
     for (const m of mapsOf(disc)) {
+      const req = unlockReq(m, store.data);
+      const lockTip = req ? t('未解锁——通关任一 {d} 图，或「{c}」课程满 6 星', { d: DIFF[req.prev], c: t(COURSES.find(c => c.id === req.cid)?.name || '') }) : '';
       const b = el(`<button class="map${m.id === mapId ? ' sel' : ''}">
         <span class="tag">${t(m.sub)}</span>
         <span class="diff">${DIFF[m.difficulty]} · ${t('最深')} ${m.maxDepth}m</span>
-        <span class="n">${mapName(m)}<small>${altName(m)}</small>${store.data.chapters?.[m.id]?.done ? ' <span style="color:var(--lagoon)" title="' + t('章节已完成') + '">✓</span>' : ''}</span>
+        <span class="n">${mapName(m)}<small>${altName(m)}</small>${store.data.chapters?.[m.id]?.done ? ` <span style="color:var(--lagoon)" title="${t('章节已完成')}">${store.data.chapters[m.id].grade || '✓'}</span>` : ''}${req ? ` <span title="${lockTip}">🔒</span>` : ''}</span>
         <span class="d">${t(STORY[m.id]?.title || '')}　${t(m.desc)}</span></button>`);
       b.onclick = () => { mapId = m.id; save(); render(); preview(); };
       list.appendChild(b);
@@ -221,6 +225,11 @@ export function showMenu({ onSolo, onLobby, onBoard, onGallery, onTrain, onPrevi
   scr.querySelector('#gotrain').onclick = onTrain;
   render(); preview();
   scr.querySelector('#reseed').onclick = () => { seed = randomSeed(); render(); preview(); };
+  scr.querySelector('#daily').onclick = () => {
+    const d = new Date();
+    seed = `DAY-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    render(); preview();
+  };
   scr.querySelector('#seededit').onclick = () => {
     const s = prompt(t('输入宇宙坐标（同一坐标 = 同一个世界，可以分享给潜伴）'), seed);
     if (s?.trim()) { seed = s.trim().toUpperCase(); render(); preview(); }
@@ -382,7 +391,8 @@ export function showLobby(net, { onStart, onBack, init }) {
 // 账号与 IP 绑定、免登录：昵称可改，档案（图鉴/章节/课程/生涯/回放）上云，照片相册只存本机。
 const scoreOf = (d) => {
   const stars = Object.values(d.courses || {}).reduce((s, c) => s + Object.values(c).reduce((x, l) => x + (l.stars || 0), 0), 0);
-  return (d.stats?.dives || 0) * 2 + Object.keys(d.codex || {}).length * 10 + Object.keys(d.chapters || {}).length * 15 + stars * 3;
+  const gradeBonus = Object.values(d.chapters || {}).reduce((s, c) => s + ({ S: 4, A: 2, B: 1 }[c.grade] || 0), 0);
+  return (d.stats?.dives || 0) * 2 + Object.keys(d.codex || {}).length * 10 + Object.keys(d.chapters || {}).length * 15 + stars * 3 + gradeBonus;
 };
 
 export function showBoard({ onBack }) {
@@ -471,6 +481,7 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onGear, onB
       <div class="flavor">${uniBrief(uni, map)}${uni.flavor.map(f => `<span>${t(f)}</span>`).join('')}</div>
       <div class="sub" style="margin:6px 0;font-size:13.5px"><b style="color:var(--lagoon)">${OBJECTIVE_DEFS[uni.objective.type].icon} ${t('本次目标：')}</b>${objectiveText(uni)}
         ${uni.sides.length ? `<span style="color:var(--dim);font-size:12px">　${t('另有 {n} 个支线机缘', { n: uni.sides.length })}</span>` : ''}</div>
+      ${uni.bonus?.length ? `<div class="sub" style="margin:2px 0 6px;font-size:12.5px"><b style="color:#ffd27f">✦ ${t('附加挑战：')}</b>${uni.bonus.map(b => bonusProgress(b, {}).text).join('　·　')}</div>` : ''}
       ${sty ? `<div class="story"><b>${t(sty.title)}</b>${sty.briefing.map(l => `<div>${t(l)}</div>`).join('')}</div>` : ''}
       <div id="svslot"></div>
       ${(map.kind || 'cave') === 'cave' ? `<div class="sub" style="margin:4px 0;font-size:12px;color:#9fd8ec">${t('怎么算结束：回入口天坑浮出水面——岸上没人接应，挥手（3）或吹哨呼喊（E）让他们找到你；水面上按 W 随时潜回去。')}</div>` : ''}
@@ -489,9 +500,15 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onGear, onB
         }).join(' ');
         return `<div class="sub" style="margin:6px 0;font-size:12px">${t('这张图用得上的课：')}${chips}</div>`;
       })()}
+      ${(() => {
+        const req = unlockReq(map, store.data);
+        if (!req) return '';
+        const cname = t(COURSES.find(c => c.id === req.cid)?.name || '');
+        return `<div class="sub" style="margin:8px 0 0;font-size:12.5px;color:#ffd27f">🔒 ${t('这片水域还不对你开放——通关任一 {d} 潜点，或把「{c}」修到 6 星再来。现在下水只能临时起意硬闯，不计评级。', { d: DIFF[req.prev], c: cname })}</div>`;
+      })()}
       <div class="row" style="margin-top:10px">
-        <button class="btn primary" id="gear">${t('装备准备')} →</button>
-        <button class="btn" id="whim" title="${t('抓起装备就走：固定基础装，可能忘带小件——折返线低、深度不限')}">${t('临时起意')} →</button>
+        ${unlockReq(map, store.data) ? '' : `<button class="btn primary" id="gear">${t('装备准备')} →</button>`}
+        <button class="btn" id="whim" title="${unlockReq(map, store.data) ? t('未解锁硬闯：固定基础装，可能忘带小件——本次不计评级') : t('抓起装备就走：固定基础装，可能忘带小件——折返线低、深度不限')}">${t('临时起意')} →</button>
         <button class="btn small" id="back">${t('今天不下了')}</button>
       </div>
       ${multiplayer ? `<div class="sub" style="margin-top:10px;font-size:12px;color:var(--lagoon)">${t('潜伴们正在同一个宇宙里等你。')}</div>` : ''}
@@ -500,9 +517,29 @@ export function showPlan(mapId, seed, { multiplayer = false, onDive, onGear, onB
   const $ = (s) => scr.querySelector(s);
   // 前人手绘测图：探明的路线轮廓 + 支洞标注，可放大看细节（中英标注可切换）
   if (map.route?.length > 1) $('#svslot').replaceChildren(surveyCard(map, uni));
-  $('#gear').onclick = () => onGear?.();
+  if ($('#gear')) $('#gear').onclick = () => onGear?.();
   $('#whim').onclick = () => onDive({ whim: true });
   $('#back').onclick = onBack;
+}
+
+// 坏结局归因：这潜差在哪 + 建议去练什么
+function whyFailed(result) {
+  switch (result.ending) {
+    case 'out_of_air':   return t('差在耗气——去练：中性浮力与折返气管理（OW 课程）');
+    case 'deco_hit':     return t('差在上升太快——去练：安全上升与停留（OW 课程）');
+    case 'tox':          return t('差在深度——氧中毒没有第二次机会，盯深度表');
+    case 'narcosis':     return t('差在氮醉——去练：深潜节奏与氮醉前兆识别（AOW 课程）');
+    case 'silt_lost':    return t('差在泥沙——脚蹼离底远一点；去练：蛙踢与悬停（OW 课程）');
+    case 'lost_line':    return t('差在丢了引绳——去练：水下导航（AOW 课程）');
+    case 'panic':        return t('差在惊慌——去练：面镜排水与呼吸节奏（OW 课程）');
+    case 'stuck':        return t('差在硬挤——窄缝过不去就换路，死缝不商量');
+    case 'buddy_lost':   return t('差在潜伴——浑水里保持目视接触，手势约定先讲好');
+    case 'freeflow':     return t('差在装备——听到嘶嘶声立刻换备用二级头（Q）');
+    case 'adrift':       return t('差在水面——离船出水先放浮标（C）');
+    case 'hypothermia':  return t('差在失温——冰潜是时间战，盯住体寒条');
+    case 'missing':      return t('差在没回来——洞里不赌运气');
+    default: return null;
+  }
 }
 
 // ———————— 结算/结局 ————————
@@ -521,10 +558,13 @@ export function showDebrief(result, { onRetry, onNewUniverse, onMenu, onGallery,
         <div class="bd">
           ${t(e.desc)}
           <div class="hint">${t('复盘笔记：')}${t(e.hint)}</div>
+          ${!good && whyFailed(result) ? `<div class="hint" style="border-color:#ff8a6a">${whyFailed(result)}</div>` : ''}
           ${sty ? `<div class="hint" style="border-color:#ffd27f"><b>${t(sty.title)}</b>${result.chapterDone ? ' · ' + t('章节完成') : ''}<br>${result.chapterDone ? t(sty.epilogue.good) : good ? t('目标没有完成——但你活着回来了。这一章，下次再写。') : t(sty.epilogue.bad)}</div>` : ''}
         </div>
       </div>
       <div class="plan-grid" style="width:min(400px,86vw);margin:0">
+        ${result.grade ? `<div class="cell"><div class="v" style="font-size:36px;color:${{ S: '#ffd27f', A: '#7fe9ea', B: '#9fd8ec' }[result.grade] || 'var(--dim)'}">${result.grade}</div><div class="l">${t('评级')}</div></div>` : ''}
+        ${result.unranked ? `<div class="cell"><div class="v" style="font-size:15px;color:var(--dim)">${t('硬闯')}</div><div class="l">${t('不计评级')}</div></div>` : ''}
         <div class="cell"><div class="v">${mmss(s.time)}</div><div class="l">${t('潜水时间')}</div></div>
         <div class="cell"><div class="v">${s.maxDepth}</div><div class="l">${t('最大深度 m')}</div></div>
         <div class="cell"><div class="v">${s.gasLeft}</div><div class="l">${t('剩余气压')}</div></div>
@@ -536,6 +576,7 @@ export function showDebrief(result, { onRetry, onNewUniverse, onMenu, onGallery,
         <div class="cell"><div class="v" style="color:${result.objectiveDone ? 'var(--lagoon)' : 'var(--dim)'}">${result.objectiveDone ? t('完成') : t('未完成')}</div><div class="l">${t('目标')}</div></div>
       </div>
       ${teamRows ? `<table class="steps-table"><thead><tr><th>${t('潜伴')}</th><th>${t('结局')}</th><th>${t('目标')}</th></tr></thead><tbody>${teamRows}</tbody></table>` : ''}
+      ${result.bonus?.length ? `<div class="sub" style="width:min(400px,86vw);text-align:left;font-size:12.5px"><b style="color:#ffd27f">✦ ${t('附加挑战')} ${result.bonusDone}/${result.bonus.length}</b>${result.bonus.map(b => `<div style="color:${b.ok ? 'var(--lagoon)' : 'var(--dim)'}">${b.ok ? '✓' : '✗'} ${b.text} <span style="opacity:.7">${b.prog}</span></div>`).join('')}</div>` : ''}
       ${result.shots?.length ? `<div class="album" style="width:min(400px,86vw)">${result.shots.map(p => `<div class="ph"><img src="${p.thumb}"><span class="c">${p.sp ? spName(p.sp) + ' ' + '★'.repeat(p.stars) : t('废片')}</span></div>`).join('')}</div>` : ''}
       <div class="row">
         <button class="btn primary" id="retry">${t('同一个宇宙，再下一次')}</button>
@@ -581,6 +622,9 @@ export function showGallery({ onBack, onLearn, onReplay }) {
   const loreList = Object.entries(STORY).flatMap(([mid, st]) => st.notes.map((n, i) => {
     const got = lore[`${mid}:${i}`], mp = MAPS.find(m => m.id === mid);
     return `<div class="it${got ? '' : ' lock'}"><div class="n">${got ? mapName(mp) : '？？？'}</div><div class="d">${got ? t(n) : t('在潜水中找到并读取手记')}</div></div>`;
+  })).concat(Object.entries(STORY).map(([mid]) => {
+    const got = lore[`relic:${mid}`], mp = MAPS.find(m => m.id === mid);
+    return `<div class="it${got ? '' : ' lock'}"><div class="n" style="color:${got ? '#ffd27f' : ''}">${got ? '✦ ' + mapName(mp) : '？？？'}</div><div class="d">${got ? t('完美者印记——这片水域把你当自己人。') : t('在这张图拿到 S 评，再去触碰那枚金色印记')}</div></div>`;
   })).join('');
   const phList = album.length
     ? album.map(p => `<div class="ph"><img src="${p.thumb}"><span class="c">${p.sp ? spName(p.sp) + ' ' + '★'.repeat(p.stars) : t('废片')} · ${p.universe || ''}</span></div>`).join('')
@@ -638,6 +682,7 @@ export function showPause({ onResume, onAbort, audio }) {
         <button class="btn primary" id="resume">${t('继续潜')}</button>
         <button class="btn" id="sound">${t('声音')}</button>
         <button class="btn" id="breath">${t('呼吸')}</button>
+        <button class="btn" id="guide">${t('潜导')}</button>
         <button class="btn" id="abort">${t('放弃这次潜水')}</button>
       </div>
       <div class="sub" style="margin-top:12px;font-size:11.5px">${t(matchMedia('(pointer: coarse)').matches ? '左半屏摇杆游动 · 右半屏视角 · 快踢/蛙踢 · 充/放=浮力 · 绳=抓绳 · 面镜/二级头/手势等在「装备」抽屉' : 'WASD 游动 · 空格快踢 · K 蛙踢 · M 面镜 · H+N 排水 · R 二级头 · B/V 浮力 · F 拍照 · E 互动 · G 引绳 · Q 备用 · L 灯 · O CCR · 1-5 手势 · Tab 键位表')}</div>
@@ -653,6 +698,12 @@ export function showPause({ onResume, onAbort, audio }) {
   const updB = () => bb.textContent = t('呼吸节奏：{v}', { v: store.data.settings?.manualBreath ? t('手动(I吸/U呼)') : t('自动') });
   updB();
   bb.onclick = () => { store.setSetting('manualBreath', !store.data.settings?.manualBreath); updB(); };
+  const gb = scr.querySelector('#guide');
+  const GN = { auto: t('自动'), full: t('全程'), lite: t('精简'), off: t('关闭') };
+  const GO = ['auto', 'full', 'lite', 'off'];
+  const updG = () => gb.textContent = t('潜导：{v}', { v: GN[store.data.settings?.guide || 'auto'] || GN.auto });
+  updG();
+  gb.onclick = () => { const cur = store.data.settings?.guide || 'auto'; store.setSetting('guide', GO[(GO.indexOf(cur) + 1) % GO.length]); updG(); };
   return scr;
 }
 

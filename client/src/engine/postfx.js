@@ -44,7 +44,7 @@ export function makeComposer(renderer, scene, camera) {
   const vol = new VolumetricPass(scene, camera, renderer, q.msaa);
   composer.addPass(vol);
   composer.vol = vol.u;
-  const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.26, 0.65, 1.05);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.16, 0.55, 1.15);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   const uw = new ShaderPass(UnderwaterShader);
